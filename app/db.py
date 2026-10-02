@@ -14,6 +14,8 @@ ROLES = {
     "jefe_comercial_ventas": "Jefe comercial de ventas",
     "jefe_comercial_franquicias": "Jefe comercial de franquicias",
     "supervisor": "Supervisor",
+    "gerencia": "Gerencia",
+    "viewer": "Visualizador",
 }
 
 PLAN_STATUSES = {"abierto", "en_proceso", "concluido"}
@@ -64,7 +66,7 @@ def initialize() -> None:
                 CHECK (role IN (
                     'admin', 'gerente_general', 'gerente_ventas',
                     'gerente_franquicias', 'jefe_comercial_ventas',
-                    'jefe_comercial_franquicias', 'supervisor'
+                    'jefe_comercial_franquicias', 'supervisor', 'gerencia', 'viewer'
                 ))
             );
 
@@ -172,6 +174,37 @@ def initialize() -> None:
                    ON action_plan_transactions(actor_username, performed_at DESC)"""
             )
             connection.execute("INSERT INTO schema_migrations (version) VALUES (3)")
+            connection.commit()
+
+        if 4 not in versions:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """CREATE TABLE users_v4 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    full_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_name TEXT,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (role IN (
+                        'admin', 'gerente_general', 'gerente_ventas',
+                        'gerente_franquicias', 'jefe_comercial_ventas',
+                        'jefe_comercial_franquicias', 'supervisor',
+                        'gerencia', 'viewer'
+                    ))
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO users_v4
+                   (id, username, full_name, password_hash, role, scope_name, active, created_at)
+                   SELECT id, username, full_name, password_hash, role, scope_name, active, created_at
+                   FROM users"""
+            )
+            connection.execute("DROP TABLE users")
+            connection.execute("ALTER TABLE users_v4 RENAME TO users")
+            connection.execute("INSERT INTO schema_migrations (version) VALUES (4)")
 
         # Migrate existing plans once, preserving their current state and text.
         connection.execute(

@@ -1,4 +1,4 @@
-const state = { user: null, csrf: null, evaluations: [], summary: {}, activeEvaluation: null, activePlanTab: "todos" };
+const state = { user: null, csrf: null, evaluations: [], summary: {}, historicalSummary: {}, period: null, activeEvaluation: null, activePlanTab: "todos" };
 const $ = (selector) => document.querySelector(selector);
 
 function escapeHtml(value) {
@@ -107,6 +107,43 @@ function renderKpis(summary) {
     </article>`).join("");
 }
 
+function renderKpiSet(summary, targetSelector, historical = false) {
+  const split = (franchise, branch) => `Franquicias: ${Number(franchise || 0)} · Sucursales: ${Number(branch || 0)}`;
+  const prefix = historical ? "Histórico · " : "";
+  const cards = [
+    [`${prefix}Evaluaciones`, summary.evaluaciones, split(summary.evaluaciones_franquicias, summary.evaluaciones_sucursales), "#2877a6", "#edf5fa"],
+    [`${prefix}Malas`, summary.malas, `${split(summary.malas_franquicias, summary.malas_sucursales)} · Planes pendientes: ${Number(summary.planes_pendientes || 0)}`, "#b42318", "#fff0ee"],
+    [`${prefix}Regulares`, summary.regulares, split(summary.regulares_franquicias, summary.regulares_sucursales), "#a35c00", "#fff5df"],
+    [`${prefix}Buenas`, summary.buenas, split(summary.buenas_franquicias, summary.buenas_sucursales), "#187342", "#e8f6ed"],
+  ];
+  $(targetSelector).innerHTML = cards.map(([label, value, detail, color, background]) => `
+    <article class="kpi-card" style="--kpi-color:${color};--kpi-bg:${background}">
+      <div class="kpi-top"><span>${label}</span><span class="kpi-icon">${label.includes("Evaluaciones") ? "▦" : label.includes("Malas") ? "!" : label.includes("Regulares") ? "↗" : "✓"}</span></div>
+      <div class="kpi-value">${Number(value || 0)}</div><div class="kpi-split">${detail}</div>
+    </article>`).join("");
+}
+
+function renderPeriod(period) {
+  state.period = period || null;
+  $("#period-banner").textContent = period?.label
+    ? `Período mostrado: ${period.label}`
+    : "Período mostrado: sin información disponible";
+}
+
+function activeFilterValue(selector, fallback) {
+  return $(`${selector} .filter-button.active`)?.dataset.value || fallback;
+}
+
+function resetFilterButtons() {
+  document.querySelectorAll(".filter-buttons").forEach((group) => {
+    group.querySelectorAll(".filter-button").forEach((button, index) => {
+      const active = index === 0;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  });
+}
+
 function localMarkup(code, rows) {
   const first = rows[0];
   const localName = first.Unidad || "Local sin maestro";
@@ -115,6 +152,7 @@ function localMarkup(code, rows) {
   const evaluations = rows.map((item) => {
     const plan = item.plan;
     const planStatus = plan ? plan.status : "pendiente";
+    const canManagePlans = Boolean(state.user?.can_manage_plans);
     const buttonLabel = plan ? "Gestionar plan" : "Abrir plan de acción";
     const date = formatDate(item.Fecha);
     const days = elapsedDays(item.Fecha);
@@ -126,9 +164,13 @@ function localMarkup(code, rows) {
       ? `Puntaje MS: ${item.PuntajeMS ?? "Sin dato"}`
       : `Rating: ${item.Rating ?? "Sin dato"}`;
     const planText = plan ? `<div class="plan-snippet"><b>Plan:</b> ${escapeHtml(plan.plan_text)}</div>` : "";
-    const planActions = plan
-      ? `<div class="row-action plan-actions"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">Editar plan</button><button class="button danger small plan-delete-button" data-id="${escapeHtml(item.ID)}">Eliminar</button></div>`
-      : `<div class="row-action"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">${buttonLabel}</button></div>`;
+    const planActions = canManagePlans
+      ? (plan
+        ? `<div class="row-action plan-actions"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">Editar plan</button><button class="button danger small plan-delete-button" data-id="${escapeHtml(item.ID)}">Eliminar</button></div>`
+        : `<div class="row-action"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">${buttonLabel}</button></div>`)
+      : (plan
+        ? `<div class="row-action"><button class="button outline small plan-button" data-id="${escapeHtml(item.ID)}">Ver plan</button></div>`
+        : "");
     return `
       <article class="evaluation-row">
         <div class="identity-col"><div class="eval-source">${escapeHtml(item.Fuente || "Fuente")}</div>
@@ -165,9 +207,9 @@ function renderPlanTabs() {
 function renderEvaluations() {
   renderPlanTabs();
   const query = $("#search-input").value.trim().toLocaleLowerCase("es-CL");
-  const category = $("#category-filter").value;
-  const division = $("#division-filter").value;
-  const source = $("#source-filter").value;
+  const category = activeFilterValue("#category-filter", "todas");
+  const division = activeFilterValue("#division-filter", "todos");
+  const source = activeFilterValue("#source-filter", "todas");
   const fromDate = $("#date-from-filter").value;
   const toDate = $("#date-to-filter").value;
   const filtered = state.evaluations.filter((item) => {
@@ -218,14 +260,19 @@ async function loadDashboard() {
     const result = await api("/api/dashboard");
     state.evaluations = result.evaluations;
     state.summary = result.summary;
-    renderKpis(result.summary);
+    state.historicalSummary = result.historical_summary || {};
+    renderPeriod(result.period);
+    renderKpiSet(result.summary || {}, "#kpi-grid");
+    renderKpiSet(state.historicalSummary, "#historical-kpi-grid", true);
     renderEvaluations();
   } catch (error) {
     $("#source-notice").textContent = `${error.message} Configura las conexiones en el archivo .env.`;
     $("#source-notice").classList.remove("hidden");
     state.evaluations = [];
     state.summary = {};
-    renderKpis({});
+    renderPeriod(null);
+    renderKpiSet({}, "#kpi-grid");
+    renderKpiSet({}, "#historical-kpi-grid", true);
     renderEvaluations();
   }
 }
@@ -283,10 +330,16 @@ async function openPlan(id) {
   const item = state.evaluations.find((row) => row.ID === id);
   if (!item) return;
   state.activeEvaluation = item;
+  const readOnly = state.user?.can_manage_plans === false;
   $("#dialog-title").textContent = item.plan ? "Actualizar plan de acci\u00f3n" : "Abrir plan de acci\u00f3n";
   $("#dialog-evaluation").innerHTML = `<b>${escapeHtml(item.CveUnidad)} \u00b7 ${escapeHtml(item.Unidad || "Local")}</b><br>${escapeHtml(item.Fuente)} | ${escapeHtml(item.Fecha || "")} | ${escapeHtml(item.category)}<br>${escapeHtml(item.Comentario || "Sin comentario")}`;
   $("#plan-text").value = item.plan?.plan_text || "";
   $("#plan-status").value = item.plan?.status || "abierto";
+  $("#plan-text").disabled = readOnly;
+  $("#plan-status").disabled = readOnly;
+  $("#plan-save-button").classList.toggle("hidden", readOnly);
+  $("#dialog-cancel").textContent = readOnly ? "Cerrar" : "Cancelar";
+  if (readOnly) $("#dialog-title").textContent = "Detalle del plan";
   $("#required-label").classList.toggle("hidden", !item.plan_required);
   $("#plan-error").classList.add("hidden");
   $("#plan-history").innerHTML = '<p class="history-empty">Cargando historial...</p>';
@@ -340,15 +393,19 @@ document.querySelectorAll(".plan-tab").forEach((button) => button.addEventListen
   renderEvaluations();
 }));
 $("#search-input").addEventListener("input", renderEvaluations);
-$("#category-filter").addEventListener("change", renderEvaluations);
-$("#division-filter").addEventListener("change", renderEvaluations);
-$("#source-filter").addEventListener("change", renderEvaluations);
+document.querySelectorAll(".filter-buttons .filter-button").forEach((button) => button.addEventListener("click", () => {
+  const group = button.closest(".filter-buttons");
+  group.querySelectorAll(".filter-button").forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-pressed", String(active));
+  });
+  renderEvaluations();
+}));
 $("#date-from-filter").addEventListener("change", renderEvaluations);
 $("#date-to-filter").addEventListener("change", renderEvaluations);
 $("#clear-filters").addEventListener("click", () => {
-  $("#category-filter").value = "todas";
-  $("#division-filter").value = "todos";
-  $("#source-filter").value = "todas";
+  resetFilterButtons();
   $("#date-from-filter").value = "";
   $("#date-to-filter").value = "";
   state.activePlanTab = "todos";
@@ -365,6 +422,7 @@ $("#plan-form").addEventListener("submit", async (event) => {
   const text = $("#plan-text").value.trim();
   const errorBox = $("#plan-error");
   if (!item) return;
+  if (!state.user?.can_manage_plans) return;
   if (!text) {
     errorBox.textContent = item.plan_required
       ? "Las evaluaciones malas requieren un plan de acción escrito."
@@ -387,7 +445,14 @@ $("#plan-form").addEventListener("submit", async (event) => {
 });
 
 $("#new-user-role").addEventListener("change", (event) => {
-  const scoped = ["jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor"].includes(event.target.value);
+  const scopeLabels = {
+    jefe_comercial_ventas: "Jefe comercial asignado",
+    jefe_comercial_franquicias: "Jefe comercial asignado",
+    supervisor: "Supervisor asignado",
+    gerencia: "Gerencia a la que pertenece",
+  };
+  const scoped = Object.hasOwn(scopeLabels, event.target.value);
+  $("#scope-label").textContent = scopeLabels[event.target.value] || "Alcance asignado";
   $("#scope-field").classList.toggle("hidden", !scoped);
   $("#scope-field").querySelector("input").required = scoped;
 });

@@ -33,7 +33,7 @@ Aplicación local con FastAPI para revisar evaluaciones, registrar planes de acc
 
 El administrador puede crear cuentas desde **Usuarios**. Para Jefes Comerciales y Supervisores, el alcance debe coincidir con el nombre correspondiente en `NomJefeComercial` o `NomSupervisor`.
 
-También se pueden crear desde PowerShell; `--role` acepta `gerente_general`, `gerente_ventas`, `gerente_franquicias`, `jefe_comercial_ventas`, `jefe_comercial_franquicias` o `supervisor`:
+También se pueden crear desde PowerShell; `--role` acepta `gerente_general`, `gerente_ventas`, `gerente_franquicias`, `jefe_comercial_ventas`, `jefe_comercial_franquicias`, `supervisor`, `gerencia` o `viewer`:
 
 ```powershell
 python -m app.cli create-user --username usuario --name "Nombre Apellido" --role supervisor --scope-name "Nombre Supervisor"
@@ -52,6 +52,8 @@ python -m app.cli set-password --username admin
 - **Gerente de franquicias:** solo códigos `F`.
 - **Jefe comercial de ventas/franquicias:** ve locales de su división asignados a su nombre; se agrupan por supervisor.
 - **Supervisor:** ve los locales cuyo `NomSupervisor` coincide con su alcance.
+- **Gerencia:** ve todos los locales; el campo de alcance guarda como texto la gerencia a la que pertenece la cuenta.
+- **Visualizador:** ve todos los locales, indicadores y planes existentes, pero no puede crear, editar ni eliminar planes de acción.
 - **Administrador:** ve todos los locales y administra cuentas.
 
 Los cambios de planes se guardan en SQLite local. La API vuelve a comprobar el alcance del usuario antes de guardar cada plan. Toda evaluación clasificada como mala requiere texto de plan; los estados disponibles son abierto, en proceso y concluido.

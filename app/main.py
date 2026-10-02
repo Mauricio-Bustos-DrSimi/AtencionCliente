@@ -1,5 +1,6 @@
 import logging
 import secrets
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -31,7 +32,7 @@ logger = logging.getLogger("atencion_cliente")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 IMAGE_DIR = Path(__file__).resolve().parent.parent / "image"
 
-app = FastAPI(title="Gestión de Atención al Cliente", docs_url=None, redoc_url=None)
+app = FastAPI(title="Experiencia Atención al Cliente", docs_url=None, redoc_url=None)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.secret_key,
@@ -110,7 +111,7 @@ def division_for(row: dict) -> str:
 def visible_to_user(row: dict, user: dict) -> bool:
     role = user["role"]
     division = division_for(row)
-    if role in {"admin", "gerente_general"}:
+    if role in {"admin", "gerente_general", "gerencia", "viewer"}:
         return True
     if role == "gerente_ventas":
         return division == "Sucursal"
@@ -170,6 +171,59 @@ def category(row: dict) -> str:
     return "Sin clasificación"
 
 
+def parse_evaluation_date(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def previous_completed_week(reference: date | None = None) -> tuple[date, date]:
+    reference = reference or date.today()
+    period_end = reference - timedelta(days=reference.weekday() + 1)
+    return period_end - timedelta(days=6), period_end
+
+
+def summary_for(evaluations: list[dict]) -> dict:
+    summary = {
+        "evaluaciones": len(evaluations),
+        "malas": sum(item["category"] == "Mala" for item in evaluations),
+        "regulares": sum(item["category"] == "Regular" for item in evaluations),
+        "buenas": sum(item["category"] == "Buena" for item in evaluations),
+        "planes_pendientes": sum(
+            item["plan_required"] and not item["plan"] for item in evaluations
+        ),
+        "franquicias": sum(division_for(item) == "Franquicia" for item in evaluations),
+        "sucursales": sum(division_for(item) == "Sucursal" for item in evaluations),
+    }
+    for key, label in (("malas", "Mala"), ("regulares", "Regular"), ("buenas", "Buena")):
+        summary[f"{key}_franquicias"] = sum(
+            item["category"] == label and division_for(item) == "Franquicia"
+            for item in evaluations
+        )
+        summary[f"{key}_sucursales"] = sum(
+            item["category"] == label and division_for(item) == "Sucursal"
+            for item in evaluations
+        )
+    summary["evaluaciones_franquicias"] = summary["franquicias"]
+    summary["evaluaciones_sucursales"] = summary["sucursales"]
+    return summary
+
+
+def period_label(start: date, end: date) -> str:
+    months = (
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    )
+    week = start.isocalendar().week
+    if start.month == end.month:
+        return f"Semana {week}: {start.day} al {end.day} de {months[end.month - 1]} de {end.year}"
+    return (
+        f"Semana {week}: {start.day} de {months[start.month - 1]} "
+        f"al {end.day} de {months[end.month - 1]} de {end.year}"
+    )
+
+
 @app.post("/api/login")
 def login(body: LoginBody, request: Request):
     user = get_user(body.username.strip())
@@ -184,6 +238,7 @@ def login(body: LoginBody, request: Request):
         "role": user["role"],
         "role_label": ROLES[user["role"]],
         "csrf_token": request.session["csrf_token"],
+        "can_manage_plans": user["role"] != "viewer",
     }
 
 
@@ -207,6 +262,7 @@ def me(request: Request, user=Depends(current_user)):
         "role_label": ROLES[user["role"]],
         "scope_name": user["scope_name"],
         "csrf_token": request.session.get("csrf_token"),
+        "can_manage_plans": user["role"] != "viewer",
     }
 
 
@@ -223,29 +279,23 @@ def dashboard(user=Depends(current_user)):
         item["plan_required"] = item["category"] == "Mala"
         evaluations.append(item)
 
-    summary = {
-            "evaluaciones": len(evaluations),
-            "malas": sum(item["category"] == "Mala" for item in evaluations),
-            "regulares": sum(item["category"] == "Regular" for item in evaluations),
-            "buenas": sum(item["category"] == "Buena" for item in evaluations),
-            "planes_pendientes": sum(
-                item["plan_required"] and not item["plan"] for item in evaluations
-            ),
-            "franquicias": sum(division_for(item) == "Franquicia" for item in evaluations),
-            "sucursales": sum(division_for(item) == "Sucursal" for item in evaluations),
+    period_start, period_end = previous_completed_week()
+    weekly_evaluations = [
+        item
+        for item in evaluations
+        if (evaluation_date := parse_evaluation_date(item.get("Fecha")))
+        and period_start <= evaluation_date <= period_end
+    ]
+    return {
+        "summary": summary_for(weekly_evaluations),
+        "historical_summary": summary_for(evaluations),
+        "evaluations": weekly_evaluations,
+        "period": {
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+            "label": period_label(period_start, period_end),
+        },
     }
-    for key, label in (("malas", "Mala"), ("regulares", "Regular"), ("buenas", "Buena")):
-        summary[f"{key}_franquicias"] = sum(
-            item["category"] == label and division_for(item) == "Franquicia"
-            for item in evaluations
-        )
-        summary[f"{key}_sucursales"] = sum(
-            item["category"] == label and division_for(item) == "Sucursal"
-            for item in evaluations
-        )
-    summary["evaluaciones_franquicias"] = summary["franquicias"]
-    summary["evaluaciones_sucursales"] = summary["sucursales"]
-    return {"summary": summary, "evaluations": evaluations}
 
 
 @app.get("/api/attention/{attention_id}/history")
@@ -265,6 +315,8 @@ def update_plan(
     x_csrf_token: Optional[str] = Header(default=None),
 ):
     require_csrf(request, x_csrf_token)
+    if user["role"] == "viewer":
+        raise HTTPException(status_code=403, detail="El perfil Visualizador no puede crear ni modificar planes.")
     rows = load_visible_rows(user)
     attention = next((row for row in rows if row["ID"] == attention_id), None)
     if not attention:
@@ -291,6 +343,8 @@ def remove_plan(
     x_csrf_token: Optional[str] = Header(default=None),
 ):
     require_csrf(request, x_csrf_token)
+    if user["role"] == "viewer":
+        raise HTTPException(status_code=403, detail="El perfil Visualizador no puede eliminar planes.")
     rows = load_visible_rows(user)
     if not any(row["ID"] == attention_id for row in rows):
         raise HTTPException(status_code=404, detail="Evaluaci\u00f3n no encontrada.")
@@ -322,7 +376,7 @@ def create_user(
     if body.role not in ROLES:
         raise HTTPException(status_code=422, detail="Rol no reconocido.")
     scoped_roles = {
-        "jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor"
+        "jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor", "gerencia"
     }
     if body.role in scoped_roles and not (body.scope_name or "").strip():
         raise HTTPException(status_code=422, detail="Este rol requiere un alcance asignado.")

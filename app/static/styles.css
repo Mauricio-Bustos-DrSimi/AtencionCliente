@@ -62,3 +62,9 @@
 .login-art .eyebrow,.login-art h1,.login-art>p:not(.eyebrow){position:relative;z-index:2}
 .login-art .login-art-footer{position:absolute;left:clamp(28px,7vw,110px);bottom:28px;z-index:2}
 .login-art>p:not(.eyebrow){max-width:410px}
+
+/* Panel semanal, KPIs históricos y filtros por botones */
+.period-banner{margin:-8px 0 18px;padding:11px 14px;border:1px solid #cfe0ea;border-radius:10px;background:#eef7fb;color:#1d5c7d;font-size:13px;font-weight:700}
+.historical-kpis{margin:0 0 25px}.historical-kpis h2{margin:3px 0 14px;font:700 19px Manrope,Arial,sans-serif;color:#263d52}.historical-kpi-grid{margin-bottom:0}.historical-kpi-grid .kpi-card{background:#fbfcfd}
+.list-toolbar{align-items:stretch;flex-direction:column;gap:16px}.list-title{width:100%}.filters{width:100%;max-width:none}.filter-buttons{display:flex;flex-wrap:wrap;gap:6px;min-height:40px;align-items:center}.filter-button{border:1px solid #d7e0e8;border-radius:8px;background:#fff;color:#536579;padding:8px 10px;font-size:11px;font-weight:700;line-height:1.1}.filter-button:hover{border-color:#8fb1c6;color:#173f5c}.filter-button.active{border-color:#173f5c;background:#173f5c;color:#fff;box-shadow:0 3px 9px #173f5c22}
+@media(max-width:760px){.filter-buttons{min-height:auto}.filter-button{flex:1 1 auto}.historical-kpis h2{font-size:17px}}

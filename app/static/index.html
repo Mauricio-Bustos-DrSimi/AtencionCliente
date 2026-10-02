@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123b5d">
-  <title>Atención al Cliente | Planes de acción</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260929-semaforo">
+  <title>Experiencia Atención al Cliente</title>
+  <link rel="icon" type="image/png" href="/images/perfil.png">
+  <link rel="stylesheet" href="/static/styles.css?v=20261002-semana">
 </head>
 <body>
   <section id="login-screen" class="login-screen">
@@ -58,37 +59,39 @@
 
       <section id="dashboard-view" class="view-content">
         <div class="page-heading">
-          <div><p class="eyebrow">RESUMEN OPERACIONAL</p><h1>Planes de acción</h1><p id="scope-copy" class="muted">Evaluaciones y seguimiento por local.</p></div>
+          <div><p class="eyebrow">RESUMEN OPERACIONAL</p><h1>Experiencia Atención al Cliente</h1><p id="scope-copy" class="muted">Evaluaciones y seguimiento por local.</p></div>
           <button id="refresh-button" class="button outline">↻ Actualizar</button>
         </div>
+        <div id="period-banner" class="period-banner">Cargando período mostrado…</div>
         <div id="source-notice" class="notice warning hidden"></div>
         <div id="kpi-grid" class="kpi-grid"></div>
+        <section class="historical-kpis"><div><p class="eyebrow">ACUMULADO HISTÓRICO</p><h2>Indicadores históricos</h2></div><div id="historical-kpi-grid" class="kpi-grid historical-kpi-grid"></div></section>
         <section class="content-card">
           <div class="list-toolbar">
-            <div><h2>Evaluaciones por local</h2><p id="evaluation-count" class="muted">Abre una evaluación para crear o actualizar su plan.</p></div>
+            <div class="list-title"><h2>Evaluaciones por local</h2><p id="evaluation-count" class="muted">Abre una evaluación para crear o actualizar su plan.</p></div>
             <div class="filters">
               <label class="filter-field">Clasificación
-                <select id="category-filter" aria-label="Filtrar por clasificación">
-                  <option value="todas">Todas</option>
-                  <option value="Mala">Malas</option>
-                  <option value="Regular">Regulares</option>
-                  <option value="Buena">Buenas</option>
-                </select>
+                <span id="category-filter" class="filter-buttons" role="group" aria-label="Filtrar por clasificación">
+                  <button type="button" class="filter-button active" data-value="todas" aria-pressed="true">Todas</button>
+                  <button type="button" class="filter-button" data-value="Mala" aria-pressed="false">Malas</button>
+                  <button type="button" class="filter-button" data-value="Regular" aria-pressed="false">Regulares</button>
+                  <button type="button" class="filter-button" data-value="Buena" aria-pressed="false">Buenas</button>
+                </span>
               </label>
               <label class="filter-field">Tipo de local
-                <select id="division-filter" aria-label="Filtrar por tipo de local">
-                  <option value="todos">Franquicias y sucursales</option>
-                  <option value="Franquicia">Franquicias</option>
-                  <option value="Sucursal">Sucursales</option>
-                </select>
+                <span id="division-filter" class="filter-buttons" role="group" aria-label="Filtrar por tipo de local">
+                  <button type="button" class="filter-button active" data-value="todos" aria-pressed="true">Todos</button>
+                  <button type="button" class="filter-button" data-value="Franquicia" aria-pressed="false">Franquicias</button>
+                  <button type="button" class="filter-button" data-value="Sucursal" aria-pressed="false">Sucursales</button>
+                </span>
               </label>
               <label class="filter-field">Fuente
-                <select id="source-filter" aria-label="Filtrar por fuente">
-                  <option value="todas">Todas las fuentes</option>
-                  <option value="Google">Google</option>
-                  <option value="MS">MysteryShopper (MS)</option>
-                  <option value="OpinionesQR">Opiniones QR</option>
-                </select>
+                <span id="source-filter" class="filter-buttons" role="group" aria-label="Filtrar por fuente">
+                  <button type="button" class="filter-button active" data-value="todas" aria-pressed="true">Todas</button>
+                  <button type="button" class="filter-button" data-value="Google" aria-pressed="false">Google</button>
+                  <button type="button" class="filter-button" data-value="MS" aria-pressed="false">MS</button>
+                  <button type="button" class="filter-button" data-value="OpinionesQR" aria-pressed="false">QR</button>
+                </span>
               </label>
               <label class="filter-field">Fecha desde
                 <input id="date-from-filter" type="date" aria-label="Fecha desde">
@@ -127,7 +130,7 @@
               <label>Nombre completo<input name="full_name" required maxlength="160"></label>
               <label>Usuario<input name="username" required minlength="3" maxlength="100"></label>
               <label>Rol<select id="new-user-role" name="role" required></select></label>
-              <label id="scope-field" class="hidden">Jefe comercial o supervisor asignado<input name="scope_name" maxlength="160"></label>
+              <label id="scope-field" class="hidden"><span id="scope-label">Alcance asignado</span><input name="scope_name" maxlength="160"></label>
               <label>Contraseña inicial<input name="password" type="password" minlength="12" required><small>Mínimo 12 caracteres.</small></label>
               <div id="user-error" class="notice error hidden"></div>
               <button class="button primary" type="submit">Crear cuenta</button>
@@ -149,11 +152,11 @@
       <label for="plan-status">Estado del plan</label>
       <select id="plan-status"><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option><option value="concluido">Concluido</option></select>
       <div id="plan-error" class="notice error hidden"></div>
-      <div class="dialog-actions"><button type="button" id="dialog-cancel" class="button outline">Cancelar</button><button type="submit" class="button primary">Guardar plan</button></div>
+      <div class="dialog-actions"><button type="button" id="dialog-cancel" class="button outline">Cancelar</button><button id="plan-save-button" type="submit" class="button primary">Guardar plan</button></div>
     </form>
   </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="/static/app.js?v=20260929-semaforo" defer></script>
+  <script src="/static/app.js?v=20261002-semana" defer></script>
 </body>
 </html>
