@@ -1,0 +1,22 @@
+[Unit]
+Description=Experiencia Atención al Cliente
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mbustos
+Group=mbustos
+WorkingDirectory=/home/mbustos/AtencionCliente
+EnvironmentFile=/home/mbustos/AtencionCliente/.env
+ExecStart=/home/mbustos/AtencionCliente/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/mbustos/AtencionCliente/data
+
+[Install]
+WantedBy=multi-user.target

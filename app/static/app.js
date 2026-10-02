@@ -1,4 +1,4 @@
-const state = { user: null, csrf: null, evaluations: [], summary: {}, historicalSummary: {}, period: null, activeEvaluation: null, activePlanTab: "todos" };
+const state = { user: null, csrf: null, evaluations: [], summary: {}, historicalSummary: {}, period: null, users: [], userRoles: [], activeEvaluation: null, activePlanTab: "todos" };
 const $ = (selector) => document.querySelector(selector);
 
 function escapeHtml(value) {
@@ -354,9 +354,62 @@ async function openPlan(id) {
 
 async function loadUsers() {
   const data = await api("/api/admin/users");
-  $("#new-user-role").innerHTML = data.roles.map((role) => `<option value="${escapeHtml(role.value)}">${escapeHtml(role.label)}</option>`).join("");
+  state.users = data.users;
+  state.userRoles = data.roles;
+  $("#new-user-role").innerHTML = (data.assignable_roles || data.roles).map((role) => `<option value="${escapeHtml(role.value)}">${escapeHtml(role.label)}</option>`).join("");
   $("#users-list").innerHTML = data.users.map((user) => `
-    <div class="user-list-item"><div><b>${escapeHtml(user.full_name)}</b><small>${escapeHtml(user.username)}${user.scope_name ? ` · ${escapeHtml(user.scope_name)}` : ""}</small></div><span class="user-role-tag">${escapeHtml(data.roles.find((role) => role.value === user.role)?.label || user.role)}</span></div>`).join("") || '<p class="muted">Todavía no hay cuentas.</p>';
+    <div class="user-list-item"><div><b>${escapeHtml(user.full_name)}</b><small>${escapeHtml(user.username)}${user.scope_name ? ` · ${escapeHtml(user.scope_name)}` : ""}</small></div><div class="user-actions"><span class="user-role-tag">${escapeHtml(data.roles.find((role) => role.value === user.role)?.label || user.role)}</span><button class="button outline small user-edit-button" data-username="${escapeHtml(user.username)}">Editar</button>${user.username.toLocaleLowerCase("es-CL") === "admin" ? "" : `<button class="button danger small user-delete-button" data-username="${escapeHtml(user.username)}">Eliminar</button>`}</div></div>`).join("") || '<p class="muted">Todavía no hay cuentas.</p>';
+  document.querySelectorAll(".user-edit-button").forEach((button) => button.addEventListener("click", () => openUserDialog(button.dataset.username)));
+  document.querySelectorAll(".user-delete-button").forEach((button) => button.addEventListener("click", () => removeUser(button.dataset.username)));
+}
+
+function scopeLabelFor(role) {
+  return {
+    jefe_comercial_ventas: "Jefe comercial asignado",
+    jefe_comercial_franquicias: "Jefe comercial asignado",
+    supervisor: "Supervisor asignado",
+    gerencia: "Gerencia a la que pertenece",
+  }[role];
+}
+
+function updateEditScopeField() {
+  const label = scopeLabelFor($("#edit-user-role").value);
+  $("#edit-scope-label").textContent = label || "Alcance asignado";
+  $("#edit-scope-field").classList.toggle("hidden", !label);
+  $("#edit-user-scope").required = Boolean(label);
+  if (!label) $("#edit-user-scope").value = "";
+}
+
+function openUserDialog(username) {
+  const target = state.users.find((item) => item.username.toLocaleLowerCase("es-CL") === String(username).toLocaleLowerCase("es-CL"));
+  if (!target) return;
+  const fixedAdmin = target.username.toLocaleLowerCase("es-CL") === "admin";
+  const selectableRoles = fixedAdmin ? state.userRoles : state.userRoles.filter((role) => role.value !== "admin");
+  $("#edit-user-username").value = target.username;
+  $("#edit-user-full-name").value = target.full_name;
+  $("#edit-user-role").innerHTML = selectableRoles.map((role) => `<option value="${escapeHtml(role.value)}">${escapeHtml(role.label)}</option>`).join("");
+  $("#edit-user-role").value = target.role;
+  $("#edit-user-role").disabled = fixedAdmin;
+  $("#edit-user-scope").value = target.scope_name || "";
+  $("#edit-user-password").value = "";
+  $("#edit-user-password").type = "password";
+  document.querySelector('[data-target="edit-user-password"]').textContent = "Ver";
+  $("#edit-user-error").classList.add("hidden");
+  updateEditScopeField();
+  $("#user-dialog").showModal();
+}
+
+async function removeUser(username) {
+  const target = state.users.find((item) => item.username.toLocaleLowerCase("es-CL") === String(username).toLocaleLowerCase("es-CL"));
+  if (!target || target.username.toLocaleLowerCase("es-CL") === "admin") return;
+  if (!window.confirm(`¿Eliminar al usuario ${target.username}? Esta acción no se puede deshacer.`)) return;
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(target.username)}`, { method: "DELETE", body: "{}" });
+    showToast("Usuario eliminado.");
+    await loadUsers();
+  } catch (error) {
+    showToast(error.message, true);
+  }
 }
 
 function setView(view) {
@@ -468,6 +521,64 @@ $("#user-form").addEventListener("submit", async (event) => {
     event.currentTarget.reset();
     $("#scope-field").classList.add("hidden");
     showToast("Usuario creado.");
+    await loadUsers();
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  }
+});
+
+$("#user-import-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const file = $("#user-import-file").files[0];
+  const resultBox = $("#user-import-result");
+  resultBox.classList.add("hidden");
+  if (!file) return;
+  try {
+    const result = await api("/api/admin/users/import", {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, content: await file.text() }),
+    });
+    const details = (result.details || []).slice(0, 5)
+      .map((item) => `Línea ${item.line}: ${item.reason}`).join(" · ");
+    resultBox.textContent = `${result.created} usuario(s) creado(s) y ${result.skipped} omitido(s).${details ? ` ${details}` : ""}`;
+    resultBox.className = "notice success";
+    event.currentTarget.reset();
+    await loadUsers();
+  } catch (error) {
+    resultBox.textContent = error.message;
+    resultBox.className = "notice error";
+  }
+});
+
+document.querySelectorAll(".password-toggle").forEach((button) => button.addEventListener("click", () => {
+  const input = $(`#${button.dataset.target}`);
+  const visible = input.type === "text";
+  input.type = visible ? "password" : "text";
+  button.textContent = visible ? "Ver" : "Ocultar";
+}));
+
+$("#edit-user-role").addEventListener("change", updateEditScopeField);
+$("#user-dialog-close").addEventListener("click", () => $("#user-dialog").close());
+$("#user-dialog-cancel").addEventListener("click", () => $("#user-dialog").close());
+$("#user-edit-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const username = $("#edit-user-username").value;
+  const errorBox = $("#edit-user-error");
+  const payload = {
+    full_name: $("#edit-user-full-name").value.trim(),
+    role: $("#edit-user-role").value,
+    scope_name: $("#edit-user-scope").value.trim(),
+    password: $("#edit-user-password").value || null,
+  };
+  errorBox.classList.add("hidden");
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(username)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    $("#user-dialog").close();
+    showToast("Usuario actualizado.");
     await loadUsers();
   } catch (error) {
     errorBox.textContent = error.message;

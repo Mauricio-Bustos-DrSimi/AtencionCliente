@@ -1,6 +1,7 @@
 # Configuración local y secretos
 .env
 .env.*
+!.env.example
 
 # Entorno y caché de Python
 .venv/

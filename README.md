@@ -15,11 +15,7 @@ Aplicación local con FastAPI para revisar evaluaciones, registrar planes de acc
    ```
 
 3. Copia `.env.example` a `.env`, establece `APP_SECRET_KEY` y configura usuarios y contraseñas SQL para ambas fuentes. La primera consulta usa `172.23.1.128 / simicl_almacen`; el maestro de locales usa `172.23.1.30 / DW_Simi`.
-4. Crea el administrador inicial. El comando solicita la contraseña sin mostrarla:
-
-   ```powershell
-   python -m app.cli create-admin --username admin --name "Administrador local"
-   ```
+4. La aplicación crea y mantiene automáticamente el administrador fijo `admin`. Define su contraseña inicial en `APP_ADMIN_PASSWORD`; puedes cambiarla posteriormente sin perder el rol de administrador.
 
 5. Inicia el servicio local:
 
@@ -33,6 +29,14 @@ Aplicación local con FastAPI para revisar evaluaciones, registrar planes de acc
 
 El administrador puede crear cuentas desde **Usuarios**. Para Jefes Comerciales y Supervisores, el alcance debe coincidir con el nombre correspondiente en `NomJefeComercial` o `NomSupervisor`.
 
+También puede cargar lotes desde un archivo **CSV** o **TXT** delimitado por coma, punto y coma, tabulación o `|`. Las columnas requeridas son `usuario`, `rol` y `contraseña`; `nombre` y `alcance` son opcionales. Los usuarios que ya existen se omiten y nunca se reemplazan.
+
+```text
+usuario;rol;contraseña;nombre;alcance
+jperez;viewer;ClaveSegura2026!;Juan Pérez;
+msoto;supervisor;ClaveSegura2026!;María Soto;María Soto
+```
+
 También se pueden crear desde PowerShell; `--role` acepta `gerente_general`, `gerente_ventas`, `gerente_franquicias`, `jefe_comercial_ventas`, `jefe_comercial_franquicias`, `supervisor`, `gerencia` o `viewer`:
 
 ```powershell
@@ -44,6 +48,8 @@ Para cambiar una contraseña local desde PowerShell:
 ```powershell
 python -m app.cli set-password --username admin
 ```
+
+Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de las cuentas, además de eliminar cuentas que no sean `admin`. Las contraseñas se guardan con hash y no se pueden recuperar ni mostrar después de ser guardadas; se pueden restablecer desde la edición de cada usuario.
 
 ## Roles y alcance
 
@@ -78,3 +84,7 @@ Cada guardado modifica `action_plans` y agrega su transacción en una sola trans
 
 
 La eliminación de un plan es lógica: deja de aparecer como vigente, pero conserva su registro y transacciones. Si se vuelve a guardar para la misma evaluación, queda restaurado y el historial registra esa acción.
+
+## Producción en Ubuntu
+
+La guía completa, la unidad `systemd` y la configuración de Nginx están en [`deploy/README_UBUNTU.md`](deploy/README_UBUNTU.md). En producción, mantén `.env` fuera de Git, define `APP_SECRET_KEY` y `APP_ADMIN_PASSWORD` con valores fuertes y habilita `APP_SESSION_HTTPS_ONLY=true` cuando el acceso público use HTTPS.

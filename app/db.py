@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .config import settings
+from .security import hash_password
 
 
 ROLES = {
@@ -19,6 +20,8 @@ ROLES = {
 }
 
 PLAN_STATUSES = {"abierto", "en_proceso", "concluido"}
+FIXED_ADMIN_USERNAME = "admin"
+FIXED_ADMIN_FULL_NAME = "Administrador local"
 
 
 def connect() -> sqlite3.Connection:
@@ -227,6 +230,36 @@ def initialize() -> None:
             )
             """
         )
+        _ensure_fixed_admin(connection)
+
+
+def _ensure_fixed_admin(connection: sqlite3.Connection) -> None:
+    """Mantiene disponible la cuenta administrativa base de la aplicación."""
+    existing = connection.execute(
+        "SELECT username FROM users WHERE username = ? COLLATE NOCASE",
+        (FIXED_ADMIN_USERNAME,),
+    ).fetchone()
+    if existing:
+        connection.execute(
+            """UPDATE users
+               SET role = 'admin', scope_name = NULL, active = 1
+               WHERE username = ? COLLATE NOCASE""",
+            (FIXED_ADMIN_USERNAME,),
+        )
+        return
+    if not settings.admin_password:
+        raise RuntimeError(
+            "Define APP_ADMIN_PASSWORD para crear el administrador fijo inicial."
+        )
+    connection.execute(
+        """INSERT INTO users (username, full_name, password_hash, role, scope_name, active)
+           VALUES (?, ?, ?, 'admin', NULL, 1)""",
+        (
+            FIXED_ADMIN_USERNAME,
+            FIXED_ADMIN_FULL_NAME,
+            hash_password(settings.admin_password),
+        ),
+    )
 
 
 def get_user(username: str):
@@ -252,6 +285,72 @@ def save_user(username, full_name, password_hash, role, scope_name):
                VALUES (?, ?, ?, ?, ?)""",
             (username, full_name, password_hash, role, scope_name or None),
         )
+
+
+def save_users_batch(users: list[dict]) -> tuple[list[str], list[dict]]:
+    """Crea cuentas nuevas en una transacción, sin reemplazar las existentes."""
+    created: list[str] = []
+    skipped: list[dict] = []
+    with db_session() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = {
+            row[0].casefold()
+            for row in connection.execute("SELECT username FROM users")
+        }
+        for user in users:
+            username = user["username"]
+            normalized_username = username.casefold()
+            if normalized_username == FIXED_ADMIN_USERNAME:
+                skipped.append({"line": user["line"], "reason": "El usuario admin es fijo."})
+                continue
+            if normalized_username in existing:
+                skipped.append({
+                    "line": user["line"],
+                    "reason": f"El usuario {username!r} ya existe o está repetido.",
+                })
+                continue
+            connection.execute(
+                """INSERT INTO users (username, full_name, password_hash, role, scope_name)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    username,
+                    user["full_name"],
+                    user["password_hash"],
+                    user["role"],
+                    user.get("scope_name") or None,
+                ),
+            )
+            existing.add(normalized_username)
+            created.append(username)
+    return created, skipped
+
+
+def update_user_account(username, full_name, role, scope_name, password_hash=None) -> bool:
+    with db_session() as connection:
+        if password_hash:
+            result = connection.execute(
+                """UPDATE users
+                   SET full_name = ?, role = ?, scope_name = ?, password_hash = ?
+                   WHERE username = ? COLLATE NOCASE""",
+                (full_name, role, scope_name or None, password_hash, username),
+            )
+        else:
+            result = connection.execute(
+                """UPDATE users
+                   SET full_name = ?, role = ?, scope_name = ?
+                   WHERE username = ? COLLATE NOCASE""",
+                (full_name, role, scope_name or None, username),
+            )
+    return result.rowcount == 1
+
+
+def delete_user_account(username) -> bool:
+    with db_session() as connection:
+        result = connection.execute(
+            "DELETE FROM users WHERE username = ? COLLATE NOCASE",
+            (username,),
+        )
+    return result.rowcount == 1
 
 
 def save_plan(attention_id, status, plan_text, username):

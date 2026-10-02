@@ -34,6 +34,9 @@
 .history-error{color:#a32b20}
 @media(max-width:760px){.history-entry-heading{flex-direction:column;gap:3px}}
 
+.user-import-divider{height:1px;background:var(--line);margin:28px 0 22px}.user-import-divider+h2{font-size:20px}.import-format{margin-top:13px;color:#526579;font-size:11px}.import-format summary{cursor:pointer;font-weight:700}.import-format pre{margin:9px 0 0;padding:10px;overflow:auto;border-radius:7px;background:#f4f8fb;color:#38516a;font:10px/1.6 Consolas,monospace}
+.role-guide{display:grid;gap:6px;margin:9px 0 0;padding-left:20px;line-height:1.45}.role-guide code{color:#174b70;font-weight:700}.password-control{display:flex;gap:7px;align-items:center}.password-control input{flex:1}.password-control .button{flex:0 0 auto}.user-list-item{align-items:center}.user-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.user-dialog input[readonly]{background:#f3f6f8;color:#647589}
+
 /* Identidad visual de Farmacias del Dr. Simi */
 .login-art:after{z-index:0}
 .login-logo{display:block;width:min(360px,82%);height:auto;margin:0 0 42px;padding:8px 12px;border-radius:9px;background:#fff;position:relative;z-index:1}
