@@ -1,0 +1,22 @@
+# Configuración local y secretos
+.env
+.env.*
+
+# Entorno y caché de Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Datos y artefactos generados en ejecución
+data/
+exports/
+logs/
+*.db
+*.sqlite3
+
+# Archivos de editor y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

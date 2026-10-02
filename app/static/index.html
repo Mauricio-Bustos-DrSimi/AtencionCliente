@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123b5d">
+  <title>Atención al Cliente | Planes de acción</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20260929-semaforo">
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <div class="login-art">
+      <img class="login-logo" src="/images/LOGO%20SIMI%20LETREROS.png" alt="Farmacias del Dr. Simi">
+      <p class="eyebrow">GESTIÓN Y SEGUIMIENTO</p>
+      <h1>Una mejor atención empieza con acciones claras.</h1>
+      <p>Revisa evaluaciones por local, acuerda planes de acción y acompaña su avance.</p>
+      <img class="login-character" src="/images/perfil.png" alt="Dr. Simi saludando">
+      <div class="login-art-footer">Plataforma de Atención al Cliente</div>
+    </div>
+    <div class="login-panel">
+      <form id="login-form" class="login-card">
+        <p class="eyebrow">BIENVENIDO</p>
+        <h2>Iniciar sesión</h2>
+        <p class="muted">Ingresa con tu cuenta de trabajo.</p>
+        <label for="login-user">Usuario</label>
+        <input id="login-user" name="username" autocomplete="username" required>
+        <label for="login-password">Contraseña</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        <div id="login-error" class="notice error hidden"></div>
+        <button class="button primary full" type="submit">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-screen" class="app-screen hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#">
+        <img class="brand-image" src="/images/logo%20dr%20simi.png" alt="Farmacias del Dr. Simi">
+        <span><b>Atención</b><small>Planes de acción</small></span>
+      </a>
+      <nav>
+        <button class="nav-link active" data-view="dashboard"><span>▦</span> Panel de gestión</button>
+        <button id="users-nav" class="nav-link hidden" data-view="users"><span>♙</span> Usuarios</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="help-card"><b>Seguimiento claro</b><p>Registra acciones y deja trazabilidad por evaluación.</p></div>
+        <div class="sidebar-foot">Atención al Cliente · Local</div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="mobile-brand"><img class="brand-image" src="/images/logo%20dr%20simi.png" alt="Farmacias del Dr. Simi"><b>Atención</b></div>
+        <div class="topbar-spacer"></div>
+        <div class="user-block"><span id="user-avatar" class="avatar">U</span><span><b id="user-name">Usuario</b><small id="user-role">Rol</small></span></div>
+        <button id="logout-button" class="button outline">Cerrar sesión</button>
+      </header>
+
+      <section id="dashboard-view" class="view-content">
+        <div class="page-heading">
+          <div><p class="eyebrow">RESUMEN OPERACIONAL</p><h1>Planes de acción</h1><p id="scope-copy" class="muted">Evaluaciones y seguimiento por local.</p></div>
+          <button id="refresh-button" class="button outline">↻ Actualizar</button>
+        </div>
+        <div id="source-notice" class="notice warning hidden"></div>
+        <div id="kpi-grid" class="kpi-grid"></div>
+        <section class="content-card">
+          <div class="list-toolbar">
+            <div><h2>Evaluaciones por local</h2><p id="evaluation-count" class="muted">Abre una evaluación para crear o actualizar su plan.</p></div>
+            <div class="filters">
+              <label class="filter-field">Clasificación
+                <select id="category-filter" aria-label="Filtrar por clasificación">
+                  <option value="todas">Todas</option>
+                  <option value="Mala">Malas</option>
+                  <option value="Regular">Regulares</option>
+                  <option value="Buena">Buenas</option>
+                </select>
+              </label>
+              <label class="filter-field">Tipo de local
+                <select id="division-filter" aria-label="Filtrar por tipo de local">
+                  <option value="todos">Franquicias y sucursales</option>
+                  <option value="Franquicia">Franquicias</option>
+                  <option value="Sucursal">Sucursales</option>
+                </select>
+              </label>
+              <label class="filter-field">Fuente
+                <select id="source-filter" aria-label="Filtrar por fuente">
+                  <option value="todas">Todas las fuentes</option>
+                  <option value="Google">Google</option>
+                  <option value="MS">MysteryShopper (MS)</option>
+                  <option value="OpinionesQR">Opiniones QR</option>
+                </select>
+              </label>
+              <label class="filter-field">Fecha desde
+                <input id="date-from-filter" type="date" aria-label="Fecha desde">
+              </label>
+              <label class="filter-field">Fecha hasta
+                <input id="date-to-filter" type="date" aria-label="Fecha hasta">
+              </label>
+              <label class="filter-field search-field">Buscar
+                <input id="search-input" class="search-input" type="search" placeholder="Local, código o comentario">
+              </label>
+              <button id="clear-filters" class="button outline filter-reset" type="button">Limpiar filtros</button>
+            </div>
+          </div>
+          <div id="plan-tabs" class="plan-tabs" role="group" aria-label="Planes por estado">
+            <button class="plan-tab active" type="button" aria-pressed="true" data-plan-tab="todos">Todos <span>0</span></button>
+            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="abierto">Abiertos <span>0</span></button>
+            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="en_proceso">En proceso <span>0</span></button>
+            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="concluido">Concluidos <span>0</span></button>
+          </div>
+          <div class="age-legend" aria-label="Semáforo de antigüedad de la atención">
+            <span class="elapsed-days age-green"><span class="age-dot" aria-hidden="true"></span>0–3 días</span>
+            <span class="elapsed-days age-yellow"><span class="age-dot" aria-hidden="true"></span>4–7 días</span>
+            <span class="elapsed-days age-red"><span class="age-dot" aria-hidden="true"></span>8 días o más</span>
+          </div>
+          <div id="evaluations-list" class="evaluations-list"></div>
+          <div id="empty-state" class="empty-state hidden"><span>✓</span><b>No hay evaluaciones para mostrar</b><p>Prueba con otros filtros o actualiza los datos.</p></div>
+        </section>
+      </section>
+
+      <section id="users-view" class="view-content hidden">
+        <div class="page-heading"><div><p class="eyebrow">ADMINISTRACIÓN</p><h1>Usuarios y permisos</h1><p class="muted">Crea cuentas y asigna el alcance correspondiente.</p></div></div>
+        <div class="user-admin-grid">
+          <section class="content-card">
+            <h2>Crear usuario</h2>
+            <form id="user-form" class="user-form">
+              <label>Nombre completo<input name="full_name" required maxlength="160"></label>
+              <label>Usuario<input name="username" required minlength="3" maxlength="100"></label>
+              <label>Rol<select id="new-user-role" name="role" required></select></label>
+              <label id="scope-field" class="hidden">Jefe comercial o supervisor asignado<input name="scope_name" maxlength="160"></label>
+              <label>Contraseña inicial<input name="password" type="password" minlength="12" required><small>Mínimo 12 caracteres.</small></label>
+              <div id="user-error" class="notice error hidden"></div>
+              <button class="button primary" type="submit">Crear cuenta</button>
+            </form>
+          </section>
+          <section class="content-card"><h2>Cuentas registradas</h2><div id="users-list" class="users-list"></div></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="plan-dialog" class="plan-dialog">
+    <form id="plan-form" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">SEGUIMIENTO DE EVALUACIÓN</p><h2 id="dialog-title">Plan de acción</h2></div><button type="button" id="dialog-close" class="icon-button" aria-label="Cerrar">×</button></div>
+      <div id="dialog-evaluation" class="evaluation-context"></div>
+      <div id="plan-history" class="plan-history" aria-live="polite"></div>
+      <label for="plan-text">Acción acordada <span id="required-label" class="required-label hidden">Obligatoria para una evaluación mala</span></label>
+      <textarea id="plan-text" rows="6" maxlength="10000" placeholder="Describe las acciones concretas, responsables o compromisos a realizar…"></textarea>
+      <label for="plan-status">Estado del plan</label>
+      <select id="plan-status"><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option><option value="concluido">Concluido</option></select>
+      <div id="plan-error" class="notice error hidden"></div>
+      <div class="dialog-actions"><button type="button" id="dialog-cancel" class="button outline">Cancelar</button><button type="submit" class="button primary">Guardar plan</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="/static/app.js?v=20260929-semaforo" defer></script>
+</body>
+</html>
