@@ -3,7 +3,7 @@ import io
 import logging
 import secrets
 import unicodedata
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -16,12 +16,15 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import (
     PLAN_STATUSES,
+    FIXED_ADMIN_PASSWORD,
     FIXED_ADMIN_USERNAME,
     ROLES,
     delete_user_account,
     delete_plan,
+    get_latest_sync_run,
     get_plans,
     get_plan_history,
+    get_stored_evaluations,
     get_user,
     initialize,
     list_users,
@@ -31,7 +34,6 @@ from .db import (
     update_user_account,
 )
 from .security import hash_password, verify_password
-from .sources import get_attention_rows
 
 
 logging.basicConfig(level=logging.INFO)
@@ -52,14 +54,26 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 
 
+@app.middleware("http")
+async def prevent_stale_application_data(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=200)
 
 
 class PlanBody(BaseModel):
-    status: str = Field(pattern="^(abierto|en_proceso|concluido)$")
-    plan_text: str = Field(min_length=1, max_length=10000)
+    status: str = Field(pattern="^(pendiente|en_subsanacion|concluido)$")
+    plan_text: str = Field(default="", max_length=10000)
+    due_date: Optional[date] = None
+    completion_confirmed: bool = False
 
 
 class UserBody(BaseModel):
@@ -89,7 +103,10 @@ def startup() -> None:
 
 @app.get("/", include_in_schema=False)
 def home():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @app.get("/api/health")
@@ -204,6 +221,8 @@ def validate_user_assignment(username: str, role: str, scope_name: str, password
     if username.casefold() == FIXED_ADMIN_USERNAME:
         if role != "admin":
             raise HTTPException(status_code=422, detail="El usuario admin debe conservar el rol Administrador.")
+        if password is not None and password != FIXED_ADMIN_PASSWORD:
+            raise HTTPException(status_code=422, detail="La contraseña del usuario admin es fija.")
     elif role == "admin":
         raise HTTPException(status_code=422, detail="El único Administrador permitido es el usuario admin fijo.")
     scoped_roles = {
@@ -250,15 +269,8 @@ def visible_to_user(row: dict, user: dict) -> bool:
     return False
 
 
-def load_visible_rows(user: dict) -> list[dict]:
-    try:
-        rows = get_attention_rows()
-    except Exception as exc:
-        logger.exception("SQL source unavailable (%s)", type(exc).__name__)
-        raise HTTPException(
-            status_code=503,
-            detail="No se pudieron leer los datos. Revisa la conexión SQL configurada.",
-        ) from exc
+def load_visible_rows(user: dict, view: str = "historical") -> list[dict]:
+    rows = get_stored_evaluations(view)
     return [row for row in rows if visible_to_user(row, user)]
 
 
@@ -298,12 +310,6 @@ def parse_evaluation_date(value) -> date | None:
         return None
 
 
-def previous_completed_week(reference: date | None = None) -> tuple[date, date]:
-    reference = reference or date.today()
-    period_end = reference - timedelta(days=reference.weekday() + 1)
-    return period_end - timedelta(days=6), period_end
-
-
 def summary_for(evaluations: list[dict]) -> dict:
     summary = {
         "evaluaciones": len(evaluations),
@@ -311,7 +317,8 @@ def summary_for(evaluations: list[dict]) -> dict:
         "regulares": sum(item["category"] == "Regular" for item in evaluations),
         "buenas": sum(item["category"] == "Buena" for item in evaluations),
         "planes_pendientes": sum(
-            item["plan_required"] and not item["plan"] for item in evaluations
+            item["plan_required"] and item["plan_status"] == "pendiente"
+            for item in evaluations
         ),
         "franquicias": sum(division_for(item) == "Franquicia" for item in evaluations),
         "sucursales": sum(division_for(item) == "Sucursal" for item in evaluations),
@@ -336,11 +343,13 @@ def period_label(start: date, end: date) -> str:
         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
     )
     week = start.isocalendar().week
+    start_day = str(start.day).zfill(2)
+    end_day = str(end.day).zfill(2)
     if start.month == end.month:
-        return f"Semana {week}: {start.day} al {end.day} de {months[end.month - 1]} de {end.year}"
+        return f"Semana {week}: {start_day} al {end_day} de {months[end.month - 1]} del {end.year}"
     return (
-        f"Semana {week}: {start.day} de {months[start.month - 1]} "
-        f"al {end.day} de {months[end.month - 1]} de {end.year}"
+        f"Semana {week}: {start_day} de {months[start.month - 1]} "
+        f"al {end_day} de {months[end.month - 1]} del {end.year}"
     )
 
 
@@ -387,8 +396,10 @@ def me(request: Request, user=Depends(current_user)):
 
 
 @app.get("/api/dashboard")
-def dashboard(user=Depends(current_user)):
-    rows = load_visible_rows(user)
+def dashboard(view: str = "weekly", user=Depends(current_user)):
+    if view not in {"weekly", "historical"}:
+        raise HTTPException(status_code=422, detail="Vista de evaluaciones no válida.")
+    rows = load_visible_rows(user, view)
     plans = get_plans()
     evaluations = []
     for row in rows:
@@ -399,28 +410,42 @@ def dashboard(user=Depends(current_user)):
         item["plan_required"] = item["category"] == "Mala"
         evaluations.append(item)
 
-    period_start, period_end = previous_completed_week()
-    weekly_evaluations = [
-        item
-        for item in evaluations
-        if (evaluation_date := parse_evaluation_date(item.get("Fecha")))
-        and period_start <= evaluation_date <= period_end
-    ]
-    return {
-        "summary": summary_for(weekly_evaluations),
-        "historical_summary": summary_for(evaluations),
-        "evaluations": weekly_evaluations,
-        "period": {
+    latest_sync = get_latest_sync_run()
+    latest_success = get_latest_sync_run(successful_only=True)
+    period = None
+    if view == "weekly" and latest_success:
+        period_start = date.fromisoformat(latest_success["week_start"])
+        period_end = date.fromisoformat(latest_success["week_end"])
+        period = {
             "start": period_start.isoformat(),
             "end": period_end.isoformat(),
             "label": period_label(period_start, period_end),
-        },
+        }
+    elif view == "historical":
+        available_dates = sorted(
+            evaluation_date
+            for item in evaluations
+            if (evaluation_date := parse_evaluation_date(item.get("Fecha")))
+        )
+        if available_dates:
+            start, end = available_dates[0], available_dates[-1]
+            period = {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "label": f"Histórico acumulado: {start.strftime('%d-%m-%Y')} al {end.strftime('%d-%m-%Y')}",
+            }
+    return {
+        "view": view,
+        "summary": summary_for(evaluations),
+        "evaluations": evaluations,
+        "period": period,
+        "last_sync": latest_sync,
     }
 
 
 @app.get("/api/attention/{attention_id}/history")
 def action_history(attention_id: str, user=Depends(current_user)):
-    rows = load_visible_rows(user)
+    rows = load_visible_rows(user, "historical")
     if not any(row["ID"] == attention_id for row in rows):
         raise HTTPException(status_code=404, detail="Evaluaci\u00f3n no encontrada.")
     return {"transactions": get_plan_history(attention_id)}
@@ -437,22 +462,31 @@ def update_plan(
     require_csrf(request, x_csrf_token)
     if user["role"] == "viewer":
         raise HTTPException(status_code=403, detail="El perfil Visualizador no puede crear ni modificar planes.")
-    rows = load_visible_rows(user)
+    rows = load_visible_rows(user, "historical")
     attention = next((row for row in rows if row["ID"] == attention_id), None)
     if not attention:
         raise HTTPException(status_code=404, detail="Evaluación no encontrada.")
     if body.status not in PLAN_STATUSES:
         raise HTTPException(status_code=422, detail="Estado de plan no válido.")
-    if not body.plan_text.strip():
-        raise HTTPException(status_code=422, detail="Describe el plan de acción.")
+    existing_plan = get_plans().get(attention_id)
+    if (
+        body.status == "concluido"
+        and (not existing_plan or existing_plan["status"] != "concluido")
+        and not body.completion_confirmed
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Confirma expresamente la conclusión del plan de acción.",
+        )
 
-    save_plan(
+    plan = save_plan(
         attention_id=attention_id,
         status=body.status,
         plan_text=body.plan_text.strip(),
+        due_date=body.due_date.isoformat() if body.due_date else None,
         username=user["username"],
     )
-    return {"ok": True, "status": body.status}
+    return {"ok": True, "status": body.status, "plan": plan}
 
 
 @app.delete("/api/attention/{attention_id}/plan")

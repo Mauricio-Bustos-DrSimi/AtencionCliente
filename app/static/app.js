@@ -1,5 +1,8 @@
-const state = { user: null, csrf: null, evaluations: [], summary: {}, historicalSummary: {}, period: null, users: [], userRoles: [], activeEvaluation: null, activePlanTab: "todos" };
+const state = { user: null, csrf: null, evaluations: [], summary: {}, period: null, users: [], userRoles: [], activeEvaluation: null, activePlanTab: "todos", activeDatasetView: "weekly" };
 const $ = (selector) => document.querySelector(selector);
+let planHistoryTransactions = [];
+let planHistoryExpanded = false;
+let lastPlanSnapshot = "";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -31,6 +34,12 @@ function showLogin() {
 function showApp(user) {
   state.user = user;
   state.csrf = user.csrf_token;
+  state.activeDatasetView = "weekly";
+  document.querySelectorAll(".dataset-tab").forEach((button) => {
+    const active = button.dataset.datasetView === "weekly";
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
   $("#login-screen").classList.add("hidden");
   $("#app-screen").classList.remove("hidden");
   $("#user-name").textContent = user.full_name;
@@ -58,7 +67,7 @@ function categoryClass(category) {
 }
 
 function statusLabel(status) {
-  return ({ pendiente: "Plan pendiente", abierto: "Abierto", en_proceso: "En proceso", concluido: "Concluido" })[status] || status;
+  return ({ pendiente: "Pendiente", en_subsanacion: "En subsanación", concluido: "Concluido" })[status] || status;
 }
 
 function localDate(dateValue) {
@@ -107,14 +116,13 @@ function renderKpis(summary) {
     </article>`).join("");
 }
 
-function renderKpiSet(summary, targetSelector, historical = false) {
+function renderKpiSet(summary, targetSelector) {
   const split = (franchise, branch) => `Franquicias: ${Number(franchise || 0)} · Sucursales: ${Number(branch || 0)}`;
-  const prefix = historical ? "Histórico · " : "";
   const cards = [
-    [`${prefix}Evaluaciones`, summary.evaluaciones, split(summary.evaluaciones_franquicias, summary.evaluaciones_sucursales), "#2877a6", "#edf5fa"],
-    [`${prefix}Malas`, summary.malas, `${split(summary.malas_franquicias, summary.malas_sucursales)} · Planes pendientes: ${Number(summary.planes_pendientes || 0)}`, "#b42318", "#fff0ee"],
-    [`${prefix}Regulares`, summary.regulares, split(summary.regulares_franquicias, summary.regulares_sucursales), "#a35c00", "#fff5df"],
-    [`${prefix}Buenas`, summary.buenas, split(summary.buenas_franquicias, summary.buenas_sucursales), "#187342", "#e8f6ed"],
+    ["Evaluaciones", summary.evaluaciones, split(summary.evaluaciones_franquicias, summary.evaluaciones_sucursales), "#2877a6", "#edf5fa"],
+    ["Malas", summary.malas, `${split(summary.malas_franquicias, summary.malas_sucursales)} · Planes pendientes: ${Number(summary.planes_pendientes || 0)}`, "#b42318", "#fff0ee"],
+    ["Regulares", summary.regulares, split(summary.regulares_franquicias, summary.regulares_sucursales), "#a35c00", "#fff5df"],
+    ["Buenas", summary.buenas, split(summary.buenas_franquicias, summary.buenas_sucursales), "#187342", "#e8f6ed"],
   ];
   $(targetSelector).innerHTML = cards.map(([label, value, detail, color, background]) => `
     <article class="kpi-card" style="--kpi-color:${color};--kpi-bg:${background}">
@@ -128,6 +136,18 @@ function renderPeriod(period) {
   $("#period-banner").textContent = period?.label
     ? `Período mostrado: ${period.label}`
     : "Período mostrado: sin información disponible";
+}
+
+function renderSyncStatus(lastSync) {
+  if (!lastSync) {
+    $("#sync-status").textContent = "Aún no se ha ejecutado la primera sincronización semanal.";
+    return;
+  }
+  const completed = lastSync.completed_at
+    ? new Date(lastSync.completed_at).toLocaleString("es-CL", { timeZone: "America/Santiago" })
+    : "en curso";
+  const status = lastSync.status === "success" ? "Correcta" : lastSync.status === "failed" ? "Fallida" : "En curso";
+  $("#sync-status").textContent = `Última sincronización: ${completed} · Estado: ${status} · Registros consultados: ${Number(lastSync.source_rows || 0)}`;
 }
 
 function activeFilterValue(selector, fallback) {
@@ -192,8 +212,8 @@ function localMarkup(code, rows) {
 function renderPlanTabs() {
   const counts = {
     todos: state.evaluations.length,
-    abierto: state.evaluations.filter((item) => item.plan_status === "abierto").length,
-    en_proceso: state.evaluations.filter((item) => item.plan_status === "en_proceso").length,
+    pendiente: state.evaluations.filter((item) => item.plan_status === "pendiente").length,
+    en_subsanacion: state.evaluations.filter((item) => item.plan_status === "en_subsanacion").length,
     concluido: state.evaluations.filter((item) => item.plan_status === "concluido").length,
   };
   document.querySelectorAll(".plan-tab").forEach((button) => {
@@ -257,22 +277,21 @@ function renderEvaluations() {
 async function loadDashboard() {
   $("#source-notice").classList.add("hidden");
   try {
-    const result = await api("/api/dashboard");
+    const result = await api(`/api/dashboard?view=${encodeURIComponent(state.activeDatasetView)}`);
     state.evaluations = result.evaluations;
     state.summary = result.summary;
-    state.historicalSummary = result.historical_summary || {};
     renderPeriod(result.period);
+    renderSyncStatus(result.last_sync);
     renderKpiSet(result.summary || {}, "#kpi-grid");
-    renderKpiSet(state.historicalSummary, "#historical-kpi-grid", true);
     renderEvaluations();
   } catch (error) {
-    $("#source-notice").textContent = `${error.message} Configura las conexiones en el archivo .env.`;
+    $("#source-notice").textContent = error.message;
     $("#source-notice").classList.remove("hidden");
     state.evaluations = [];
     state.summary = {};
     renderPeriod(null);
+    renderSyncStatus(null);
     renderKpiSet({}, "#kpi-grid");
-    renderKpiSet({}, "#historical-kpi-grid", true);
     renderEvaluations();
   }
 }
@@ -293,8 +312,10 @@ function transactionLabel(type) {
   return ({
     plan_creado: "Plan creado",
     estado_actualizado: "Estado actualizado",
-    accion_actualizada: "Acci\u00f3n actualizada",
-    plan_y_estado_actualizados: "Acci\u00f3n y estado actualizados",
+    accion_actualizada: "Compromisos y acciones actualizados",
+    fecha_plazo_actualizada: "Fecha de plazo actualizada",
+    multiples_campos_actualizados: "Varios campos actualizados",
+    plan_y_estado_actualizados: "Acción y estado actualizados",
     registro_confirmado: "Guardado sin cambios",
     migracion_inicial: "Estado inicial migrado",
     plan_eliminado: "Plan eliminado",
@@ -304,26 +325,117 @@ function transactionLabel(type) {
 
 function renderPlanHistory(transactions) {
   if (!transactions.length) {
-    return '<p class="history-empty">A\u00fan no hay acciones registradas.</p>';
+    return '<section><h3>Historial de acciones</h3><p class="history-empty">Aún no hay acciones registradas.</p></section>';
   }
-  const entries = transactions.map((transaction) => {
+  const visibleTransactions = planHistoryExpanded ? transactions : transactions.slice(0, 3);
+  const entries = visibleTransactions.map((transaction) => {
     const timestamp = transaction.performed_at
       ? new Date(transaction.performed_at).toLocaleString("es-CL")
       : "Fecha no disponible";
     const previousStatus = transaction.previous_status
-      ? `${statusLabel(transaction.previous_status)} \u2192 `
+      ? `${statusLabel(transaction.previous_status)} → `
       : "";
     const stateChange = `${previousStatus}${statusLabel(transaction.new_status)}`;
     const previousText = transaction.previous_text && transaction.previous_text !== transaction.action_text
-      ? `<details><summary>Ver acci\u00f3n anterior</summary><p>${escapeHtml(transaction.previous_text)}</p></details>`
+      ? `<details><summary>Ver compromisos anteriores</summary><p>${escapeHtml(transaction.previous_text)}</p></details>`
       : "";
+    const dueDateChange = transaction.previous_due_date !== transaction.new_due_date
+      ? `<div class="history-entry-meta">Plazo: ${escapeHtml(transaction.previous_due_date || "Sin fecha")} → ${escapeHtml(transaction.new_due_date || "Sin fecha")}</div>`
+      : "";
+    const actionText = transaction.action_text
+      ? `<p class="history-action">${escapeHtml(transaction.action_text)}</p>`
+      : '<p class="history-action muted">Sin compromisos escritos.</p>';
     return `<li class="history-entry">
       <div class="history-entry-heading"><b>${escapeHtml(transactionLabel(transaction.event_type))}</b><span>${escapeHtml(timestamp)}</span></div>
-      <div class="history-entry-meta">Estado: ${escapeHtml(stateChange)} \u00b7 Usuario: ${escapeHtml(transaction.actor_username)}</div>
-      <p class="history-action">${escapeHtml(transaction.action_text)}</p>${previousText}
+      <div class="history-entry-meta">Estado: ${escapeHtml(stateChange)} · Usuario: ${escapeHtml(transaction.actor_username)}</div>
+      ${dueDateChange}${actionText}${previousText}
     </li>`;
   }).join("");
-  return `<section><h3>Historial de acciones (${transactions.length})</h3><ol class="history-list">${entries}</ol></section>`;
+  const moreButton = transactions.length > 3
+    ? `<button type="button" id="history-more-button" class="history-more">${planHistoryExpanded ? "Ver menos" : "Ver más (" + (transactions.length - 3) + ")"}</button>`
+    : "";
+  return `<section><h3>Historial de acciones (${transactions.length})</h3><ol class="history-list">${entries}</ol>${moreButton}</section>`;
+}
+
+function updatePlanHistory(transactions) {
+  planHistoryTransactions = transactions;
+  $("#plan-history").innerHTML = renderPlanHistory(transactions);
+  $("#history-more-button")?.addEventListener("click", () => {
+    planHistoryExpanded = !planHistoryExpanded;
+    updatePlanHistory(planHistoryTransactions);
+  });
+}
+
+async function refreshPlanHistory() {
+  if (!state.activeEvaluation) return;
+  const result = await api(`/api/attention/${encodeURIComponent(state.activeEvaluation.ID)}/history`);
+  updatePlanHistory(result.transactions || []);
+}
+
+function currentPlanPayload(completionConfirmed = false) {
+  return {
+    status: $("#plan-status").value,
+    plan_text: $("#plan-text").value,
+    due_date: $("#plan-due-date").value || null,
+    completion_confirmed: completionConfirmed,
+  };
+}
+
+function planSnapshot(payload = currentPlanPayload()) {
+  return JSON.stringify({
+    status: payload.status,
+    plan_text: payload.plan_text,
+    due_date: payload.due_date,
+  });
+}
+
+function setPlanEditStatus(message, className = "") {
+  const element = $("#plan-edit-status");
+  element.textContent = message;
+  element.className = `edit-status ${className}`.trim();
+}
+
+function markPlanDirty() {
+  if (!state.user?.can_manage_plans) return false;
+  const dirty = planSnapshot() !== lastPlanSnapshot;
+  setPlanEditStatus(dirty ? "Hay cambios sin guardar." : "Sin cambios pendientes.", dirty ? "pending" : "");
+  return dirty;
+}
+
+function setPlanButtonsDisabled(disabled) {
+  $("#plan-save-button").disabled = disabled;
+  $("#plan-cancel-button").disabled = disabled;
+  $("#dialog-close").disabled = disabled;
+}
+
+async function savePlan(completionConfirmed = false) {
+  if (!state.activeEvaluation || !state.user?.can_manage_plans) return false;
+  const payload = currentPlanPayload(completionConfirmed);
+  const snapshot = planSnapshot(payload);
+  if (snapshot === lastPlanSnapshot && !completionConfirmed) return true;
+  setPlanEditStatus("Guardando el cambio completo…", "saving");
+  setPlanButtonsDisabled(true);
+  $("#plan-error").classList.add("hidden");
+  try {
+    const result = await api(`/api/attention/${encodeURIComponent(state.activeEvaluation.ID)}/plan`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    state.activeEvaluation.plan = result.plan;
+    state.activeEvaluation.plan_status = result.plan.status;
+    lastPlanSnapshot = snapshot;
+    setPlanEditStatus(`Cambio guardado a las ${new Date().toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}.`, "saved");
+    renderPlanTabs();
+    await refreshPlanHistory();
+    return true;
+  } catch (error) {
+    $("#plan-error").textContent = error.message;
+    $("#plan-error").classList.remove("hidden");
+    setPlanEditStatus("No se pudo guardar el cambio.", "error");
+    return false;
+  } finally {
+    setPlanButtonsDisabled(false);
+  }
 }
 
 async function openPlan(id) {
@@ -331,22 +443,31 @@ async function openPlan(id) {
   if (!item) return;
   state.activeEvaluation = item;
   const readOnly = state.user?.can_manage_plans === false;
-  $("#dialog-title").textContent = item.plan ? "Actualizar plan de acci\u00f3n" : "Abrir plan de acci\u00f3n";
-  $("#dialog-evaluation").innerHTML = `<b>${escapeHtml(item.CveUnidad)} \u00b7 ${escapeHtml(item.Unidad || "Local")}</b><br>${escapeHtml(item.Fuente)} | ${escapeHtml(item.Fecha || "")} | ${escapeHtml(item.category)}<br>${escapeHtml(item.Comentario || "Sin comentario")}`;
+  planHistoryExpanded = false;
+  $("#dialog-title").textContent = readOnly ? "Detalle del plan de acción" : "Gestión del plan de acción";
+  $("#plan-unit-code").value = item.CveUnidad || "";
+  $("#plan-unit-name").value = item.Unidad || "Local sin nombre";
+  $("#plan-supervisor").value = item.NomSupervisor || "Supervisor sin asignar";
+  $("#plan-evaluation-date").value = formatDate(item.Fecha);
+  $("#plan-classification-text").textContent = item.category || "Sin clasificación";
+  $("#plan-classification").className = `crm-classification ${categoryClass(item.category)}`;
+  $("#plan-original-comment").textContent = item.Comentario || "Sin comentario asociado.";
   $("#plan-text").value = item.plan?.plan_text || "";
-  $("#plan-status").value = item.plan?.status || "abierto";
+  $("#plan-due-date").value = item.plan?.due_date || "";
+  $("#plan-status").value = item.plan?.status || "pendiente";
   $("#plan-text").disabled = readOnly;
+  $("#plan-due-date").disabled = readOnly;
   $("#plan-status").disabled = readOnly;
   $("#plan-save-button").classList.toggle("hidden", readOnly);
-  $("#dialog-cancel").textContent = readOnly ? "Cerrar" : "Cancelar";
-  if (readOnly) $("#dialog-title").textContent = "Detalle del plan";
-  $("#required-label").classList.toggle("hidden", !item.plan_required);
+  $("#plan-cancel-button").textContent = readOnly ? "Cerrar" : "Cancelar";
+  lastPlanSnapshot = planSnapshot();
+  setPlanEditStatus(readOnly ? "Modo solo lectura." : "Sin cambios pendientes.");
   $("#plan-error").classList.add("hidden");
+  $("#plan-completion-confirmation").classList.add("hidden");
   $("#plan-history").innerHTML = '<p class="history-empty">Cargando historial...</p>';
   $("#plan-dialog").showModal();
   try {
-    const result = await api(`/api/attention/${encodeURIComponent(id)}/history`);
-    $("#plan-history").innerHTML = renderPlanHistory(result.transactions || []);
+    await refreshPlanHistory();
   } catch (error) {
     $("#plan-history").innerHTML = `<p class="history-error">No se pudo cargar el historial: ${escapeHtml(error.message)}</p>`;
   }
@@ -391,8 +512,12 @@ function openUserDialog(username) {
   $("#edit-user-role").value = target.role;
   $("#edit-user-role").disabled = fixedAdmin;
   $("#edit-user-scope").value = target.scope_name || "";
-  $("#edit-user-password").value = "";
+  $("#edit-user-password").value = fixedAdmin ? "admin123" : "";
   $("#edit-user-password").type = "password";
+  $("#edit-user-password").disabled = fixedAdmin;
+  $("#edit-password-help").textContent = fixedAdmin
+    ? "Contraseña fija: admin123. Se restaura al iniciar la aplicación."
+    : "Déjala vacía para conservar la actual.";
   document.querySelector('[data-target="edit-user-password"]').textContent = "Ver";
   $("#edit-user-error").classList.add("hidden");
   updateEditScopeField();
@@ -440,7 +565,16 @@ $("#logout-button").addEventListener("click", async () => {
   try { await api("/api/logout", { method: "POST", body: "{}" }); } catch (_) { /* Clear local view anyway. */ }
   showLogin();
 });
-$("#refresh-button").addEventListener("click", loadDashboard);
+document.querySelectorAll(".dataset-tab").forEach((button) => button.addEventListener("click", async () => {
+  state.activeDatasetView = button.dataset.datasetView;
+  state.activePlanTab = "todos";
+  document.querySelectorAll(".dataset-tab").forEach((item) => {
+    const active = item === button;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-selected", String(active));
+  });
+  await loadDashboard();
+}));
 document.querySelectorAll(".plan-tab").forEach((button) => button.addEventListener("click", () => {
   state.activePlanTab = button.dataset.planTab;
   renderEvaluations();
@@ -466,34 +600,58 @@ $("#clear-filters").addEventListener("click", () => {
   renderEvaluations();
 });
 document.querySelectorAll(".nav-link").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
-$("#dialog-close").addEventListener("click", () => $("#plan-dialog").close());
-$("#dialog-cancel").addEventListener("click", () => $("#plan-dialog").close());
 
-$("#plan-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const item = state.activeEvaluation;
-  const text = $("#plan-text").value.trim();
-  const errorBox = $("#plan-error");
-  if (!item) return;
-  if (!state.user?.can_manage_plans) return;
-  if (!text) {
-    errorBox.textContent = item.plan_required
-      ? "Las evaluaciones malas requieren un plan de acción escrito."
-      : "Escribe la acción que se realizará.";
-    errorBox.classList.remove("hidden");
+async function discardAndClosePlan() {
+  $("#plan-completion-confirmation").classList.add("hidden");
+  $("#plan-dialog").close();
+  state.activeEvaluation = null;
+  await loadDashboard();
+}
+
+async function handlePlanReady() {
+  if (!state.user?.can_manage_plans) {
+    await discardAndClosePlan();
     return;
   }
-  try {
-    await api(`/api/attention/${encodeURIComponent(item.ID)}/plan`, {
-      method: "PUT",
-      body: JSON.stringify({ status: $("#plan-status").value, plan_text: text }),
-    });
-    $("#plan-dialog").close();
+  const previousStatus = JSON.parse(lastPlanSnapshot || '{"status":"pendiente"}').status;
+  if ($("#plan-status").value === "concluido" && previousStatus !== "concluido") {
+    $("#plan-completion-confirmation").classList.remove("hidden");
+    return;
+  }
+  const saved = await savePlan(false);
+  if (saved) {
     showToast("Plan de acción guardado.");
-    await loadDashboard();
-  } catch (error) {
-    errorBox.textContent = error.message;
-    errorBox.classList.remove("hidden");
+    await discardAndClosePlan();
+  }
+}
+
+$("#dialog-close").addEventListener("click", discardAndClosePlan);
+$("#plan-cancel-button").addEventListener("click", discardAndClosePlan);
+$("#plan-save-button").addEventListener("click", handlePlanReady);
+$("#plan-dialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  if (!$("#plan-completion-confirmation").classList.contains("hidden")) {
+    $("#plan-completion-confirmation").classList.add("hidden");
+    return;
+  }
+  if (!$("#plan-save-button").disabled) discardAndClosePlan();
+});
+$("#plan-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  handlePlanReady();
+});
+$("#plan-text").addEventListener("input", markPlanDirty);
+$("#plan-due-date").addEventListener("change", markPlanDirty);
+$("#plan-status").addEventListener("change", markPlanDirty);
+$("#completion-back").addEventListener("click", () => {
+  $("#plan-completion-confirmation").classList.add("hidden");
+});
+$("#completion-confirm").addEventListener("click", async () => {
+  $("#plan-completion-confirmation").classList.add("hidden");
+  const saved = await savePlan(true);
+  if (saved) {
+    showToast("Plan concluido y registrado en el historial.");
+    await discardAndClosePlan();
   }
 });
 
@@ -569,7 +727,7 @@ $("#user-edit-form").addEventListener("submit", async (event) => {
     full_name: $("#edit-user-full-name").value.trim(),
     role: $("#edit-user-role").value,
     scope_name: $("#edit-user-scope").value.trim(),
-    password: $("#edit-user-password").value || null,
+    password: $("#edit-user-password").disabled ? null : ($("#edit-user-password").value || null),
   };
   errorBox.classList.add("hidden");
   try {

@@ -27,7 +27,6 @@ class Settings:
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
     app_port: int = int(os.getenv("APP_PORT", "8000"))
     secret_key: str = os.getenv("APP_SECRET_KEY") or secrets.token_urlsafe(48)
-    admin_password: str = os.getenv("APP_ADMIN_PASSWORD", "")
     session_https_only: bool = os.getenv("APP_SESSION_HTTPS_ONLY", "false").strip().casefold() in {
         "1", "true", "yes", "si", "sí",
     }

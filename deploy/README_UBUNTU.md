@@ -50,7 +50,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 nano .env
 ```
 
-Completa `APP_SECRET_KEY`, `APP_ADMIN_PASSWORD`, las dos conexiones SQL y deja:
+Completa `APP_SECRET_KEY`, las dos conexiones SQL y deja:
 
 ```dotenv
 APP_HOST=127.0.0.1
@@ -59,9 +59,19 @@ APP_DATABASE_PATH=/home/mbustos/AtencionCliente/data/app_atencion.sqlite3
 APP_SESSION_HTTPS_ONLY=false
 ```
 
-Usa `APP_SESSION_HTTPS_ONLY=true` únicamente después de habilitar HTTPS en el proxy. En la primera ejecución se crea `admin` con `APP_ADMIN_PASSWORD`; los reinicios posteriores no reemplazan una contraseña cambiada desde la aplicación.
+Usa `APP_SESSION_HTTPS_ONLY=true` únicamente después de habilitar HTTPS en el proxy. En la primera ejecución se crea `admin` con contraseña fija `admin123`; cada reinicio restaura esa contraseña.
 
-## 4. Prueba previa
+## 4. Crear las tablas y ejecutar la primera sincronización
+
+La aplicación conserva en SQLite los usuarios, planes de acción, evaluaciones históricas, cortes semanales y la auditoría de cada sincronización. Ejecuta una primera carga antes de abrir el panel:
+
+```bash
+.venv/bin/python -m app.sync --trigger initial
+```
+
+La consulta es de solo lectura para SQL Server. La carga local guarda el histórico consolidado y el corte de la última semana completa, de lunes a domingo.
+
+## 5. Prueba previa
 
 ```bash
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -75,19 +85,24 @@ curl --fail http://127.0.0.1:8000/api/health
 
 Detén la prueba con `Ctrl+C` antes de instalar el servicio.
 
-## 5. Servicio systemd
+## 6. Servicio web y sincronización semanal con systemd
 
 ```bash
 sudo cp deploy/atencion-cliente.service /etc/systemd/system/atencion-cliente.service
+sudo cp deploy/atencion-cliente-sync.service /etc/systemd/system/atencion-cliente-sync.service
+sudo cp deploy/atencion-cliente-sync.timer /etc/systemd/system/atencion-cliente-sync.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now atencion-cliente
+sudo systemctl enable --now atencion-cliente-sync.timer
 sudo systemctl status atencion-cliente --no-pager
+systemctl list-timers atencion-cliente-sync.timer --no-pager
 journalctl -u atencion-cliente -n 100 --no-pager
+journalctl -u atencion-cliente-sync.service -n 100 --no-pager
 ```
 
-El servicio usa un solo proceso para compartir de manera consistente la SQLite local de usuarios y planes.
+El temporizador ejecuta la consulta todos los lunes a las 06:00 en la zona `America/Santiago`. `Persistent=true` hace que systemd ejecute una carga pendiente al volver a encender el servidor. El servicio web usa un solo proceso para compartir de manera consistente la SQLite local.
 
-## 6. Nginx
+## 7. Nginx
 
 Instala la plantilla y edita la copia del sistema para reemplazar `SERVER_NAME` por el DNS o la IP del servidor:
 
@@ -101,12 +116,15 @@ sudo systemctl reload nginx
 
 Antes de abrir puertos, limita el acceso a la red corporativa según las reglas de firewall del servidor. Para un despliegue definitivo, configura un certificado HTTPS en Nginx, cambia `APP_SESSION_HTTPS_ONLY=true` y reinicia el servicio.
 
-## 7. Verificación y actualizaciones
+## 8. Verificación y actualizaciones
 
 ```bash
 curl --fail http://127.0.0.1:8000/api/health
 sudo systemctl is-active atencion-cliente
+sudo systemctl is-active atencion-cliente-sync.timer
+sudo systemctl start atencion-cliente-sync.service
 sudo journalctl -u atencion-cliente -n 100 --no-pager
+sudo journalctl -u atencion-cliente-sync.service -n 100 --no-pager
 ```
 
 Para actualizar desde GitHub:
@@ -116,6 +134,7 @@ cd /home/mbustos/AtencionCliente
 git pull --ff-only origin main
 .venv/bin/pip install -r requirements.txt
 sudo systemctl restart atencion-cliente
+sudo systemctl restart atencion-cliente-sync.timer
 curl --fail http://127.0.0.1:8000/api/health
 ```
 

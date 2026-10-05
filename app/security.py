@@ -3,9 +3,9 @@ import hmac
 import secrets
 
 
-def hash_password(password: str) -> str:
-    if len(password) < 12:
-        raise ValueError("Password must have at least 12 characters")
+def hash_password(password: str, minimum_length: int = 12) -> str:
+    if len(password) < minimum_length:
+        raise ValueError(f"Password must have at least {minimum_length} characters")
     salt = secrets.token_bytes(16)
     digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1)
     return f"scrypt${salt.hex()}${digest.hex()}"

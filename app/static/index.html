@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#123b5d">
   <title>Experiencia Atención al Cliente</title>
   <link rel="icon" type="image/png" href="/images/perfil.png">
-  <link rel="stylesheet" href="/static/styles.css?v=20261002-roles">
+  <link rel="stylesheet" href="/static/styles.css?v=20261005-crm3">
 </head>
 <body>
   <section id="login-screen" class="login-screen">
@@ -60,12 +60,15 @@
       <section id="dashboard-view" class="view-content">
         <div class="page-heading">
           <div><p class="eyebrow">RESUMEN OPERACIONAL</p><h1>Experiencia Atención al Cliente</h1><p id="scope-copy" class="muted">Evaluaciones y seguimiento por local.</p></div>
-          <button id="refresh-button" class="button outline">↻ Actualizar</button>
+        </div>
+        <div id="dataset-tabs" class="dataset-tabs" role="tablist" aria-label="Período de evaluaciones">
+          <button type="button" class="dataset-tab active" role="tab" aria-selected="true" data-dataset-view="weekly">Semanal</button>
+          <button type="button" class="dataset-tab" role="tab" aria-selected="false" data-dataset-view="historical">Histórico</button>
         </div>
         <div id="period-banner" class="period-banner">Cargando período mostrado…</div>
+        <div id="sync-status" class="sync-status"></div>
         <div id="source-notice" class="notice warning hidden"></div>
         <div id="kpi-grid" class="kpi-grid"></div>
-        <section class="historical-kpis"><div><p class="eyebrow">ACUMULADO HISTÓRICO</p><h2>Indicadores históricos</h2></div><div id="historical-kpi-grid" class="kpi-grid historical-kpi-grid"></div></section>
         <section class="content-card">
           <div class="list-toolbar">
             <div class="list-title"><h2>Evaluaciones por local</h2><p id="evaluation-count" class="muted">Abre una evaluación para crear o actualizar su plan.</p></div>
@@ -107,8 +110,8 @@
           </div>
           <div id="plan-tabs" class="plan-tabs" role="group" aria-label="Planes por estado">
             <button class="plan-tab active" type="button" aria-pressed="true" data-plan-tab="todos">Todos <span>0</span></button>
-            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="abierto">Abiertos <span>0</span></button>
-            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="en_proceso">En proceso <span>0</span></button>
+            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="pendiente">Pendientes <span>0</span></button>
+            <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="en_subsanacion">En subsanación <span>0</span></button>
             <button class="plan-tab" type="button" aria-pressed="false" data-plan-tab="concluido">Concluidos <span>0</span></button>
           </div>
           <div class="age-legend" aria-label="Semáforo de antigüedad de la atención">
@@ -117,7 +120,7 @@
             <span class="elapsed-days age-red"><span class="age-dot" aria-hidden="true"></span>8 días o más</span>
           </div>
           <div id="evaluations-list" class="evaluations-list"></div>
-          <div id="empty-state" class="empty-state hidden"><span>✓</span><b>No hay evaluaciones para mostrar</b><p>Prueba con otros filtros o actualiza los datos.</p></div>
+          <div id="empty-state" class="empty-state hidden"><span>✓</span><b>No hay evaluaciones para mostrar</b><p>Prueba con otros filtros.</p></div>
         </section>
       </section>
 
@@ -159,27 +162,54 @@
       <label>Nombre completo<input id="edit-user-full-name" maxlength="160" required></label>
       <label>Rol<select id="edit-user-role" required></select></label>
       <label id="edit-scope-field" class="hidden"><span id="edit-scope-label">Alcance asignado</span><input id="edit-user-scope" maxlength="160"></label>
-      <label>Nueva contraseña <small>Déjala vacía para conservar la actual.</small><div class="password-control"><input id="edit-user-password" type="password" minlength="12" maxlength="200"><button class="button outline small password-toggle" type="button" data-target="edit-user-password">Ver</button></div></label>
+      <label>Nueva contraseña <small id="edit-password-help">Déjala vacía para conservar la actual.</small><div class="password-control"><input id="edit-user-password" type="password" minlength="12" maxlength="200"><button class="button outline small password-toggle" type="button" data-target="edit-user-password">Ver</button></div></label>
       <div id="edit-user-error" class="notice error hidden"></div>
       <div class="dialog-actions"><button type="button" id="user-dialog-cancel" class="button outline">Cancelar</button><button type="submit" class="button primary">Guardar cambios</button></div>
     </form>
   </dialog>
 
-  <dialog id="plan-dialog" class="plan-dialog">
+  <dialog id="plan-dialog" class="plan-dialog crm-plan-dialog">
     <form id="plan-form" method="dialog">
-      <div class="dialog-heading"><div><p class="eyebrow">SEGUIMIENTO DE EVALUACIÓN</p><h2 id="dialog-title">Plan de acción</h2></div><button type="button" id="dialog-close" class="icon-button" aria-label="Cerrar">×</button></div>
-      <div id="dialog-evaluation" class="evaluation-context"></div>
-      <div id="plan-history" class="plan-history" aria-live="polite"></div>
-      <label for="plan-text">Acción acordada <span id="required-label" class="required-label hidden">Obligatoria para una evaluación mala</span></label>
-      <textarea id="plan-text" rows="6" maxlength="10000" placeholder="Describe las acciones concretas, responsables o compromisos a realizar…"></textarea>
-      <label for="plan-status">Estado del plan</label>
-      <select id="plan-status"><option value="abierto">Abierto</option><option value="en_proceso">En proceso</option><option value="concluido">Concluido</option></select>
-      <div id="plan-error" class="notice error hidden"></div>
-      <div class="dialog-actions"><button type="button" id="dialog-cancel" class="button outline">Cancelar</button><button id="plan-save-button" type="submit" class="button primary">Guardar plan</button></div>
+      <div class="dialog-heading crm-fixed-heading"><div><p class="eyebrow">GESTIÓN DE INCIDENCIA</p><h2 id="dialog-title">Plan de acción</h2><p class="crm-subtitle">Revisa los datos, completa el seguimiento y presiona Listo para registrar el cambio.</p></div><button type="button" id="dialog-close" class="icon-button" aria-label="Cerrar">×</button></div>
+      <section class="crm-section crm-evaluation-section">
+        <h3>Información de la evaluación</h3>
+        <div class="crm-locked-grid">
+          <label>Código de unidad<input id="plan-unit-code" readonly></label>
+          <label>Unidad<input id="plan-unit-name" readonly></label>
+          <label>Supervisor<input id="plan-supervisor" readonly></label>
+          <label>Fecha<input id="plan-evaluation-date" readonly></label>
+          <label>Clasificación<span id="plan-classification" class="crm-classification none"><span class="crm-classification-dot" aria-hidden="true"></span><span id="plan-classification-text">Sin clasificación</span></span></label>
+        </div>
+        <div class="crm-original-comment"><span>Comentario de la evaluación</span><p id="plan-original-comment"></p></div>
+      </section>
+      <div class="crm-scroll-content">
+        <section class="crm-section crm-management-section">
+          <h3>Seguimiento y compromisos</h3>
+          <div class="crm-management-grid">
+            <label for="plan-due-date">Fecha de plazo<input id="plan-due-date" type="date"></label>
+            <label for="plan-status">Estado<select id="plan-status"><option value="pendiente">Pendiente</option><option value="en_subsanacion">En subsanación</option><option value="concluido">Concluido</option></select></label>
+            <label class="crm-actions-field" for="plan-text">Compromisos, comentarios y acciones<textarea id="plan-text" rows="7" maxlength="10000" placeholder="Registra compromisos, responsables, comentarios y acciones para subsanar la incidencia…"></textarea></label>
+          </div>
+        </section>
+        <div id="plan-error" class="notice error hidden"></div>
+        <div id="plan-history" class="plan-history" aria-live="polite"></div>
+      </div>
+      <div class="crm-dialog-footer">
+        <div id="plan-edit-status" class="edit-status" aria-live="polite">Sin cambios pendientes.</div>
+        <div class="dialog-actions"><button type="button" id="plan-cancel-button" class="button outline">Cancelar</button><button type="button" id="plan-save-button" class="button primary">Listo</button></div>
+      </div>
+      <div id="plan-completion-confirmation" class="crm-confirmation hidden" role="alertdialog" aria-modal="true" aria-labelledby="completion-title">
+        <div class="crm-confirmation-card">
+          <p class="eyebrow">CONFIRMACIÓN REQUERIDA</p>
+          <h3 id="completion-title">¿Concluir este plan de acción?</h3>
+          <p>Esta modificación quedará registrada en el historial con tu usuario y fecha.</p>
+          <div class="dialog-actions"><button type="button" id="completion-back" class="button outline">Volver</button><button type="button" id="completion-confirm" class="button primary">Sí, concluir</button></div>
+        </div>
+      </div>
     </form>
   </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="/static/app.js?v=20261002-roles" defer></script>
+  <script src="/static/app.js?v=20261005-crm3" defer></script>
 </body>
 </html>

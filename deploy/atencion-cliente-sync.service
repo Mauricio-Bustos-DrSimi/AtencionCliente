@@ -1,0 +1,17 @@
+[Unit]
+Description=Sincronización semanal de Experiencia Atención al Cliente
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mbustos
+Group=mbustos
+WorkingDirectory=/home/mbustos/AtencionCliente
+EnvironmentFile=/home/mbustos/AtencionCliente/.env
+ExecStart=/home/mbustos/AtencionCliente/.venv/bin/python -m app.sync --trigger scheduled
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/mbustos/AtencionCliente/data

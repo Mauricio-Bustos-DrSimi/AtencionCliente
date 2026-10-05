@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import json
 import sqlite3
 from pathlib import Path
 from typing import Iterator
@@ -19,9 +20,10 @@ ROLES = {
     "viewer": "Visualizador",
 }
 
-PLAN_STATUSES = {"abierto", "en_proceso", "concluido"}
+PLAN_STATUSES = {"pendiente", "en_subsanacion", "concluido"}
 FIXED_ADMIN_USERNAME = "admin"
 FIXED_ADMIN_FULL_NAME = "Administrador local"
+FIXED_ADMIN_PASSWORD = "admin123"
 
 
 def connect() -> sqlite3.Connection:
@@ -75,8 +77,10 @@ def initialize() -> None:
 
             CREATE TABLE IF NOT EXISTS action_plans (
                 attention_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL CHECK (status IN ('abierto', 'en_proceso', 'concluido')),
-                plan_text TEXT NOT NULL CHECK (length(trim(plan_text)) > 0),
+                status TEXT NOT NULL DEFAULT 'pendiente'
+                    CHECK (status IN ('pendiente', 'en_subsanacion', 'concluido')),
+                plan_text TEXT NOT NULL DEFAULT '',
+                due_date TEXT,
                 created_by TEXT NOT NULL,
                 updated_by TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -94,12 +98,16 @@ def initialize() -> None:
                     'plan_y_estado_actualizados', 'registro_confirmado',
                     'migracion_inicial', 'plan_eliminado', 'plan_restaurado'
                 )),
-                previous_status TEXT CHECK (
-                    previous_status IS NULL OR previous_status IN ('abierto', 'en_proceso', 'concluido')
+                previous_status TEXT CHECK (previous_status IS NULL OR previous_status IN (
+                    'pendiente', 'en_subsanacion', 'concluido'
+                )),
+                new_status TEXT NOT NULL CHECK (
+                    new_status IN ('pendiente', 'en_subsanacion', 'concluido')
                 ),
-                new_status TEXT NOT NULL CHECK (new_status IN ('abierto', 'en_proceso', 'concluido')),
                 previous_text TEXT,
-                action_text TEXT NOT NULL CHECK (length(trim(action_text)) > 0),
+                action_text TEXT NOT NULL DEFAULT '',
+                previous_due_date TEXT,
+                new_due_date TEXT,
                 actor_username TEXT NOT NULL,
                 performed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 FOREIGN KEY (attention_id) REFERENCES action_plans(attention_id)
@@ -115,7 +123,72 @@ def initialize() -> None:
             CREATE INDEX IF NOT EXISTS ix_action_transactions_actor_date
                 ON action_plan_transactions(actor_username, performed_at DESC);
 
-            INSERT OR IGNORE INTO schema_migrations (version) VALUES (1), (2);
+            CREATE TABLE IF NOT EXISTS evaluation_sync_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger_type TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                source_rows INTEGER NOT NULL DEFAULT 0,
+                weekly_rows INTEGER NOT NULL DEFAULT 0,
+                historical_inserted INTEGER NOT NULL DEFAULT 0,
+                historical_updated INTEGER NOT NULL DEFAULT 0,
+                historical_unchanged INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluation_history (
+                attention_id TEXT PRIMARY KEY,
+                evaluation_date TEXT,
+                payload_json TEXT NOT NULL,
+                payload_hash TEXT NOT NULL,
+                first_seen_run_id INTEGER NOT NULL,
+                last_seen_run_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (first_seen_run_id) REFERENCES evaluation_sync_runs(id),
+                FOREIGN KEY (last_seen_run_id) REFERENCES evaluation_sync_runs(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS weekly_evaluations (
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                attention_id TEXT NOT NULL,
+                evaluation_date TEXT,
+                payload_json TEXT NOT NULL,
+                payload_hash TEXT NOT NULL,
+                sync_run_id INTEGER NOT NULL,
+                captured_at TEXT NOT NULL,
+                PRIMARY KEY (week_start, attention_id),
+                FOREIGN KEY (sync_run_id) REFERENCES evaluation_sync_runs(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS evaluation_sync_operations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sync_run_id INTEGER NOT NULL,
+                attention_id TEXT,
+                target_table TEXT NOT NULL CHECK (
+                    target_table IN ('evaluation_history', 'weekly_evaluations')
+                ),
+                operation_type TEXT NOT NULL CHECK (
+                    operation_type IN ('inserted', 'updated', 'unchanged', 'snapshot')
+                ),
+                performed_at TEXT NOT NULL,
+                FOREIGN KEY (sync_run_id) REFERENCES evaluation_sync_runs(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_evaluation_history_date
+                ON evaluation_history(evaluation_date DESC);
+
+            CREATE INDEX IF NOT EXISTS ix_weekly_evaluations_period
+                ON weekly_evaluations(week_start DESC, evaluation_date DESC);
+
+            CREATE INDEX IF NOT EXISTS ix_sync_operations_run
+                ON evaluation_sync_operations(sync_run_id, id);
+
+            INSERT OR IGNORE INTO schema_migrations (version) VALUES (1), (2), (5);
             """
         )
         connection.commit()
@@ -208,6 +281,108 @@ def initialize() -> None:
             connection.execute("DROP TABLE users")
             connection.execute("ALTER TABLE users_v4 RENAME TO users")
             connection.execute("INSERT INTO schema_migrations (version) VALUES (4)")
+            connection.commit()
+
+        if 6 not in versions:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """CREATE TABLE action_plans_v6 (
+                    attention_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'pendiente'
+                        CHECK (status IN ('pendiente', 'en_subsanacion', 'concluido')),
+                    plan_text TEXT NOT NULL DEFAULT '',
+                    due_date TEXT,
+                    created_by TEXT NOT NULL,
+                    updated_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TEXT,
+                    deleted_at TEXT,
+                    deleted_by TEXT
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO action_plans_v6 (
+                       attention_id, status, plan_text, due_date, created_by,
+                       updated_by, created_at, updated_at, completed_at,
+                       deleted_at, deleted_by
+                   )
+                   SELECT attention_id,
+                          CASE status
+                              WHEN 'abierto' THEN 'pendiente'
+                              WHEN 'en_proceso' THEN 'en_subsanacion'
+                              ELSE status
+                          END,
+                          plan_text, NULL, created_by, updated_by, created_at,
+                          updated_at, completed_at, deleted_at, deleted_by
+                   FROM action_plans"""
+            )
+            connection.execute(
+                """CREATE TABLE action_plan_transactions_v6 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attention_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK (event_type IN (
+                        'plan_creado', 'estado_actualizado', 'accion_actualizada',
+                        'fecha_plazo_actualizada', 'multiples_campos_actualizados',
+                        'plan_y_estado_actualizados', 'registro_confirmado',
+                        'migracion_inicial', 'plan_eliminado', 'plan_restaurado'
+                    )),
+                    previous_status TEXT CHECK (previous_status IS NULL OR previous_status IN (
+                        'pendiente', 'en_subsanacion', 'concluido'
+                    )),
+                    new_status TEXT NOT NULL CHECK (
+                        new_status IN ('pendiente', 'en_subsanacion', 'concluido')
+                    ),
+                    previous_text TEXT,
+                    action_text TEXT NOT NULL DEFAULT '',
+                    previous_due_date TEXT,
+                    new_due_date TEXT,
+                    actor_username TEXT NOT NULL,
+                    performed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    FOREIGN KEY (attention_id) REFERENCES action_plans_v6(attention_id)
+                        ON UPDATE CASCADE ON DELETE RESTRICT
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO action_plan_transactions_v6 (
+                       id, attention_id, event_type, previous_status, new_status,
+                       previous_text, action_text, previous_due_date, new_due_date,
+                       actor_username, performed_at
+                   )
+                   SELECT id, attention_id, event_type,
+                          CASE previous_status
+                              WHEN 'abierto' THEN 'pendiente'
+                              WHEN 'en_proceso' THEN 'en_subsanacion'
+                              ELSE previous_status
+                          END,
+                          CASE new_status
+                              WHEN 'abierto' THEN 'pendiente'
+                              WHEN 'en_proceso' THEN 'en_subsanacion'
+                              ELSE new_status
+                          END,
+                          previous_text, action_text, NULL, NULL,
+                          actor_username, performed_at
+                   FROM action_plan_transactions"""
+            )
+            connection.execute("DROP TABLE action_plan_transactions")
+            connection.execute("DROP TABLE action_plans")
+            connection.execute("ALTER TABLE action_plans_v6 RENAME TO action_plans")
+            connection.execute(
+                "ALTER TABLE action_plan_transactions_v6 RENAME TO action_plan_transactions"
+            )
+            connection.execute(
+                "CREATE INDEX ix_action_plans_status ON action_plans(status)"
+            )
+            connection.execute(
+                """CREATE INDEX ix_action_transactions_attention_date
+                   ON action_plan_transactions(attention_id, performed_at DESC, id DESC)"""
+            )
+            connection.execute(
+                """CREATE INDEX ix_action_transactions_actor_date
+                   ON action_plan_transactions(actor_username, performed_at DESC)"""
+            )
+            connection.execute("INSERT INTO schema_migrations (version) VALUES (6)")
+            connection.commit()
 
         # Migrate existing plans once, preserving their current state and text.
         connection.execute(
@@ -235,6 +410,7 @@ def initialize() -> None:
 
 def _ensure_fixed_admin(connection: sqlite3.Connection) -> None:
     """Mantiene disponible la cuenta administrativa base de la aplicación."""
+    fixed_password_hash = hash_password(FIXED_ADMIN_PASSWORD, minimum_length=8)
     existing = connection.execute(
         "SELECT username FROM users WHERE username = ? COLLATE NOCASE",
         (FIXED_ADMIN_USERNAME,),
@@ -242,22 +418,18 @@ def _ensure_fixed_admin(connection: sqlite3.Connection) -> None:
     if existing:
         connection.execute(
             """UPDATE users
-               SET role = 'admin', scope_name = NULL, active = 1
+               SET password_hash = ?, role = 'admin', scope_name = NULL, active = 1
                WHERE username = ? COLLATE NOCASE""",
-            (FIXED_ADMIN_USERNAME,),
+            (fixed_password_hash, FIXED_ADMIN_USERNAME),
         )
         return
-    if not settings.admin_password:
-        raise RuntimeError(
-            "Define APP_ADMIN_PASSWORD para crear el administrador fijo inicial."
-        )
     connection.execute(
         """INSERT INTO users (username, full_name, password_hash, role, scope_name, active)
            VALUES (?, ?, ?, 'admin', NULL, 1)""",
         (
             FIXED_ADMIN_USERNAME,
             FIXED_ADMIN_FULL_NAME,
-            hash_password(settings.admin_password),
+            fixed_password_hash,
         ),
     )
 
@@ -353,71 +525,87 @@ def delete_user_account(username) -> bool:
     return result.rowcount == 1
 
 
-def save_plan(attention_id, status, plan_text, username):
+def save_plan(attention_id, status, plan_text, due_date, username):
     with db_session() as connection:
         connection.execute("BEGIN IMMEDIATE")
         current = connection.execute(
-            "SELECT status, plan_text, deleted_at FROM action_plans WHERE attention_id = ?",
+            """SELECT status, plan_text, due_date, deleted_at
+               FROM action_plans WHERE attention_id = ?""",
             (attention_id,),
         ).fetchone()
 
         if current:
             previous_status = current["status"]
             previous_text = current["plan_text"]
+            previous_due_date = current["due_date"]
             was_deleted = current["deleted_at"] is not None
             status_changed = previous_status != status
             text_changed = previous_text != plan_text
+            due_date_changed = previous_due_date != due_date
             if was_deleted:
                 event_type = "plan_restaurado"
-            elif status_changed and text_changed:
-                event_type = "plan_y_estado_actualizados"
+            elif sum((status_changed, text_changed, due_date_changed)) > 1:
+                event_type = "multiples_campos_actualizados"
             elif status_changed:
                 event_type = "estado_actualizado"
             elif text_changed:
                 event_type = "accion_actualizada"
+            elif due_date_changed:
+                event_type = "fecha_plazo_actualizada"
             else:
-                event_type = "registro_confirmado"
+                saved = connection.execute(
+                    "SELECT * FROM action_plans WHERE attention_id = ?",
+                    (attention_id,),
+                ).fetchone()
+                return dict(saved)
 
             connection.execute(
                 """UPDATE action_plans
-                   SET status = ?, plan_text = ?, updated_by = ?,
+                   SET status = ?, plan_text = ?, due_date = ?, updated_by = ?,
                        updated_at = CURRENT_TIMESTAMP,
                        deleted_at = NULL, deleted_by = NULL,
                        completed_at = CASE WHEN ? = 'concluido'
                                            THEN COALESCE(completed_at, CURRENT_TIMESTAMP)
                                            ELSE NULL END
                    WHERE attention_id = ?""",
-                (status, plan_text, username, status, attention_id),
+                (status, plan_text, due_date, username, status, attention_id),
             )
         else:
             previous_status = None
             previous_text = None
+            previous_due_date = None
             event_type = "plan_creado"
             connection.execute(
                 """INSERT INTO action_plans
-                   (attention_id, status, plan_text, created_by, updated_by, completed_at)
-                   VALUES (?, ?, ?, ?, ?,
+                   (attention_id, status, plan_text, due_date, created_by, updated_by, completed_at)
+                   VALUES (?, ?, ?, ?, ?, ?,
                        CASE WHEN ? = 'concluido' THEN CURRENT_TIMESTAMP ELSE NULL END)""",
-                (attention_id, status, plan_text, username, username, status),
+                (attention_id, status, plan_text, due_date, username, username, status),
             )
 
         connection.execute(
             """INSERT INTO action_plan_transactions
                (attention_id, event_type, previous_status, new_status,
-                previous_text, action_text, actor_username)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                previous_text, action_text, previous_due_date, new_due_date,
+                actor_username)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 attention_id, event_type, previous_status, status,
-                previous_text, plan_text, username,
+                previous_text, plan_text, previous_due_date, due_date, username,
             ),
         )
+        saved = connection.execute(
+            "SELECT * FROM action_plans WHERE attention_id = ?",
+            (attention_id,),
+        ).fetchone()
+    return dict(saved)
 
 
 def delete_plan(attention_id, username):
     with db_session() as connection:
         connection.execute("BEGIN IMMEDIATE")
         current = connection.execute(
-            """SELECT status, plan_text FROM action_plans
+            """SELECT status, plan_text, due_date FROM action_plans
                WHERE attention_id = ? AND deleted_at IS NULL""",
             (attention_id,),
         ).fetchone()
@@ -434,14 +622,17 @@ def delete_plan(attention_id, username):
         connection.execute(
             """INSERT INTO action_plan_transactions
                (attention_id, event_type, previous_status, new_status,
-                previous_text, action_text, actor_username)
-               VALUES (?, 'plan_eliminado', ?, ?, ?, ?, ?)""",
+                previous_text, action_text, previous_due_date, new_due_date,
+                actor_username)
+               VALUES (?, 'plan_eliminado', ?, ?, ?, ?, ?, ?, ?)""",
             (
                 attention_id,
                 current["status"],
                 current["status"],
                 current["plan_text"],
                 current["plan_text"],
+                current["due_date"],
+                current["due_date"],
                 username,
             ),
         )
@@ -460,10 +651,55 @@ def get_plan_history(attention_id):
     with db_session() as connection:
         rows = connection.execute(
             """SELECT id, attention_id, event_type, previous_status, new_status,
-                      previous_text, action_text, actor_username, performed_at
+                      previous_text, action_text, previous_due_date, new_due_date,
+                      actor_username, performed_at
                FROM action_plan_transactions
                WHERE attention_id = ?
                ORDER BY id DESC""",
             (attention_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_stored_evaluations(view: str) -> list[dict]:
+    """Obtiene la instantánea semanal más reciente o el histórico consolidado."""
+    if view not in {"weekly", "historical"}:
+        raise ValueError("La vista debe ser weekly o historical.")
+    with db_session() as connection:
+        if view == "weekly":
+            latest_run = connection.execute(
+                """SELECT week_start
+                   FROM evaluation_sync_runs
+                   WHERE status = 'success'
+                   ORDER BY id DESC LIMIT 1"""
+            ).fetchone()
+            if not latest_run:
+                return []
+            rows = connection.execute(
+                """SELECT payload_json
+                   FROM weekly_evaluations
+                   WHERE week_start = ?
+                   ORDER BY evaluation_date DESC, attention_id""",
+                (latest_run["week_start"],),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """SELECT payload_json
+                   FROM evaluation_history
+                   ORDER BY evaluation_date DESC, attention_id"""
+            ).fetchall()
+    return [json.loads(row["payload_json"]) for row in rows]
+
+
+def get_latest_sync_run(successful_only: bool = False):
+    with db_session() as connection:
+        row = connection.execute(
+            """SELECT id, trigger_type, status, week_start, week_end, started_at,
+                      completed_at, source_rows, weekly_rows, historical_inserted,
+                      historical_updated, historical_unchanged, error_message
+               FROM evaluation_sync_runs
+               WHERE (? = 0 OR status = 'success')
+               ORDER BY id DESC LIMIT 1""",
+            (int(successful_only),),
+        ).fetchone()
+    return dict(row) if row else None

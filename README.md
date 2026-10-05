@@ -15,7 +15,7 @@ Aplicación local con FastAPI para revisar evaluaciones, registrar planes de acc
    ```
 
 3. Copia `.env.example` a `.env`, establece `APP_SECRET_KEY` y configura usuarios y contraseñas SQL para ambas fuentes. La primera consulta usa `172.23.1.128 / simicl_almacen`; el maestro de locales usa `172.23.1.30 / DW_Simi`.
-4. La aplicación crea y mantiene automáticamente el administrador fijo `admin`. Define su contraseña inicial en `APP_ADMIN_PASSWORD`; puedes cambiarla posteriormente sin perder el rol de administrador.
+4. La aplicación crea y mantiene automáticamente el administrador fijo `admin`, con contraseña fija `admin123`. El usuario, rol, estado y contraseña se restauran al iniciar.
 
 5. Inicia el servicio local:
 
@@ -62,13 +62,13 @@ Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de l
 - **Visualizador:** ve todos los locales, indicadores y planes existentes, pero no puede crear, editar ni eliminar planes de acción.
 - **Administrador:** ve todos los locales y administra cuentas.
 
-Los cambios de planes se guardan en SQLite local. La API vuelve a comprobar el alcance del usuario antes de guardar cada plan. Toda evaluación clasificada como mala requiere texto de plan; los estados disponibles son abierto, en proceso y concluido.
+Los planes funcionan como fichas CRM y se guardan como una actualización completa al presionar `Listo`; `Cancelar`, la X y la tecla Escape descartan la edición local. La API vuelve a comprobar el alcance del usuario antes de cada modificación. Los estados disponibles son pendiente, en subsanación y concluido; el paso a concluido exige una confirmación explícita dentro de la aplicación. La fecha de plazo, los compromisos y cada cambio de estado quedan registrados en el historial con usuario y fecha.
 
 ## Configuración de SQL
 
 Edita `.env` localmente. No guardes credenciales reales en el repositorio. Variables disponibles: `ATENCION_SQL_SERVER`, `ATENCION_SQL_DATABASE`, `ATENCION_SQL_USER`, `ATENCION_SQL_PASSWORD`, `ATENCION_SQL_DRIVER`, y sus equivalentes `LOCALES_SQL_*`.
 
-El servicio puede iniciar sin conexión SQL para permitir la preparación local. El panel informa el problema de conexión hasta que se configuren ambos orígenes.
+El servicio web puede iniciar sin conexión SQL. Las consultas se ejecutan mediante `python -m app.sync`, y el panel lee únicamente los datos persistidos por la última sincronización exitosa.
 
 
 ## Modelo transaccional de acciones
@@ -76,8 +76,12 @@ El servicio puede iniciar sin conexión SQL para permitir la preparación local.
 La base SQLite local usa estas tablas:
 
 - `users`: cuentas, roles y alcance de cada usuario.
-- `action_plans`: estado vigente y texto actual del plan, con un plan por cada ID de atención.
-- `action_plan_transactions`: historial inmutable de cada guardado; registra evento, estado anterior y nuevo, texto anterior y actual, usuario y fecha UTC.
+- `action_plans`: estado vigente, fecha de plazo y compromisos actuales, con un plan por cada ID de atención.
+- `action_plan_transactions`: historial inmutable de cada guardado confirmado; registra estado, compromisos y plazo anteriores y nuevos, usuario y fecha UTC.
+- `evaluation_history`: versión vigente de cada evaluación identificada por su ID.
+- `weekly_evaluations`: instantáneas de las evaluaciones correspondientes a cada semana completa.
+- `evaluation_sync_runs`: resultado y contadores de cada consulta a los orígenes SQL.
+- `evaluation_sync_operations`: detalle de inserciones, actualizaciones, registros sin cambio e inclusiones en cada corte semanal.
 - `schema_migrations`: versiones instaladas del esquema.
 
 Cada guardado modifica `action_plans` y agrega su transacción en una sola transacción SQLite. Al iniciar, la migración conserva los planes existentes y crea un evento inicial para cada plan legado. El historial se consulta desde el detalle del plan y vuelve a validar los permisos del usuario.
@@ -85,6 +89,16 @@ Cada guardado modifica `action_plans` y agrega su transacción en una sola trans
 
 La eliminación de un plan es lógica: deja de aparecer como vigente, pero conserva su registro y transacciones. Si se vuelve a guardar para la misma evaluación, queda restaurado y el historial registra esa acción.
 
+## Sincronización de evaluaciones
+
+La vista **Semanal** es la pestaña predeterminada y muestra la última semana completa cargada. La vista **Histórico** muestra el consolidado acumulado sin duplicar IDs. Para iniciar una carga manual:
+
+```bash
+python -m app.sync --trigger manual
+```
+
+En Ubuntu, las unidades incluidas en `deploy/` programan la carga cada lunes a las 06:00, hora de Santiago.
+
 ## Producción en Ubuntu
 
-La guía completa, la unidad `systemd` y la configuración de Nginx están en [`deploy/README_UBUNTU.md`](deploy/README_UBUNTU.md). En producción, mantén `.env` fuera de Git, define `APP_SECRET_KEY` y `APP_ADMIN_PASSWORD` con valores fuertes y habilita `APP_SESSION_HTTPS_ONLY=true` cuando el acceso público use HTTPS.
+La guía completa, la unidad `systemd` y la configuración de Nginx están en [`deploy/README_UBUNTU.md`](deploy/README_UBUNTU.md). En producción, mantén `.env` fuera de Git, define `APP_SECRET_KEY` con un valor fuerte y habilita `APP_SESSION_HTTPS_ONLY=true` cuando el acceso público use HTTPS.
