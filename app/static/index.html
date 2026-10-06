@@ -143,8 +143,8 @@
             <p class="muted">Carga un archivo CSV o TXT con varios usuarios.</p>
             <form id="user-import-form" class="user-form">
               <label>Archivo CSV o TXT<input id="user-import-file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain" required><small>Columnas requeridas: usuario, rol y contraseña. También puedes agregar nombre y alcance.</small></label>
-              <details class="import-format"><summary>Ver formato de ejemplo</summary><pre>usuario;rol;contraseña;nombre;alcance&#10;jperez;viewer;ClaveSegura2026!;Juan Pérez;&#10;msoto;supervisor;ClaveSegura2026!;María Soto;María Soto</pre></details>
-              <details class="import-format"><summary>Ver todos los tipos de usuario</summary><ul class="role-guide"><li><code>admin</code>: Administrador fijo; no se importa ni elimina.</li><li><code>gerente_general</code>: ve todos los locales.</li><li><code>gerente_ventas</code>: ve sucursales.</li><li><code>gerente_franquicias</code>: ve franquicias.</li><li><code>jefe_comercial_ventas</code>: requiere alcance y ve sus sucursales.</li><li><code>jefe_comercial_franquicias</code>: requiere alcance y ve sus franquicias.</li><li><code>supervisor</code>: requiere alcance con el nombre del supervisor.</li><li><code>gerencia</code>: requiere alcance con el nombre de la gerencia; ve todos los locales.</li><li><code>viewer</code>: ve todo, sin crear ni modificar planes.</li></ul></details>
+              <details class="import-format"><summary>Ver formato de ejemplo</summary><pre>usuario;rol;contraseña;nombre;alcance&#10;jperez;viewer;ClaveSegura2026!;Juan Pérez;&#10;msoto;supervisor_ventas;ClaveSegura2026!;María Soto;María Soto&#10;crojas;supervisor_franquicias;ClaveSegura2026!;Carlos Rojas;Carlos Rojas</pre></details>
+              <details class="import-format"><summary>Ver todos los tipos de usuario</summary><ul class="role-guide"><li><code>admin</code>: Administrador fijo; no se importa ni elimina.</li><li><code>gerente_general</code>: ve todos los locales.</li><li><code>gerente_ventas</code>: ve sucursales.</li><li><code>gerente_franquicias</code>: ve franquicias.</li><li><code>jefe_comercial_ventas</code>: requiere alcance y ve sus sucursales.</li><li><code>jefe_comercial_franquicias</code>: requiere alcance y ve sus franquicias.</li><li><code>supervisor_ventas</code>: requiere el nombre exacto de <code>NomSupervisor</code> y ve solamente sus sucursales.</li><li><code>supervisor_franquicias</code>: requiere el nombre exacto de <code>NomSupervisor</code> y ve solamente sus franquicias.</li><li><code>gerencia</code>: requiere alcance con el nombre de la gerencia; ve todos los locales.</li><li><code>viewer</code>: ve todo, sin crear ni modificar planes.</li></ul></details>
               <div id="user-import-result" class="notice success hidden"></div>
               <button class="button outline" type="submit">Importar archivo</button>
             </form>
@@ -210,6 +210,6 @@
   </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="/static/app.js?v=20261005-crm3" defer></script>
+  <script src="/static/app.js?v=20261005-roles2" defer></script>
 </body>
 </html>

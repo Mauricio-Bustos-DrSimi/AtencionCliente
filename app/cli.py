@@ -11,7 +11,10 @@ def create_account(username: str, full_name: str, role: str, scope_name: str | N
         raise SystemExit(f"The username {username!r} already exists.")
     if role not in ROLES:
         raise SystemExit(f"Unknown role: {role}")
-    if role in {"jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor", "gerencia"} and not scope_name:
+    if role in {
+        "jefe_comercial_ventas", "jefe_comercial_franquicias",
+        "supervisor_ventas", "supervisor_franquicias", "gerencia",
+    } and not scope_name:
         raise SystemExit("This role requires --scope-name.")
 
     while True:

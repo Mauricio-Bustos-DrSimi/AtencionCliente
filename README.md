@@ -34,13 +34,14 @@ También puede cargar lotes desde un archivo **CSV** o **TXT** delimitado por co
 ```text
 usuario;rol;contraseña;nombre;alcance
 jperez;viewer;ClaveSegura2026!;Juan Pérez;
-msoto;supervisor;ClaveSegura2026!;María Soto;María Soto
+msoto;supervisor_ventas;ClaveSegura2026!;María Soto;María Soto
+crojas;supervisor_franquicias;ClaveSegura2026!;Carlos Rojas;Carlos Rojas
 ```
 
-También se pueden crear desde PowerShell; `--role` acepta `gerente_general`, `gerente_ventas`, `gerente_franquicias`, `jefe_comercial_ventas`, `jefe_comercial_franquicias`, `supervisor`, `gerencia` o `viewer`:
+También se pueden crear desde PowerShell; `--role` acepta `gerente_general`, `gerente_ventas`, `gerente_franquicias`, `jefe_comercial_ventas`, `jefe_comercial_franquicias`, `supervisor_ventas`, `supervisor_franquicias`, `gerencia` o `viewer`:
 
 ```powershell
-python -m app.cli create-user --username usuario --name "Nombre Apellido" --role supervisor --scope-name "Nombre Supervisor"
+python -m app.cli create-user --username usuario --name "Nombre Apellido" --role supervisor_ventas --scope-name "Nombre Supervisor"
 ```
 
 Para cambiar una contraseña local desde PowerShell:
@@ -57,7 +58,8 @@ Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de l
 - **Gerente de ventas:** solo códigos `CL` (sucursales propias).
 - **Gerente de franquicias:** solo códigos `F`.
 - **Jefe comercial de ventas/franquicias:** ve locales de su división asignados a su nombre; se agrupan por supervisor.
-- **Supervisor:** ve los locales cuyo `NomSupervisor` coincide con su alcance.
+- **Supervisor de ventas:** ve solamente sucursales cuyo `NomSupervisor` coincide con su alcance.
+- **Supervisor de franquicias:** ve solamente franquicias cuyo `NomSupervisor` coincide con su alcance.
 - **Gerencia:** ve todos los locales; el campo de alcance guarda como texto la gerencia a la que pertenece la cuenta.
 - **Visualizador:** ve todos los locales, indicadores y planes existentes, pero no puede crear, editar ni eliminar planes de acción.
 - **Administrador:** ve todos los locales y administra cuentas.

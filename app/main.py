@@ -168,7 +168,8 @@ def parse_users_import(content: str) -> tuple[list[dict], list[dict]]:
         )
 
     scoped_roles = {
-        "jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor", "gerencia",
+        "jefe_comercial_ventas", "jefe_comercial_franquicias",
+        "supervisor_ventas", "supervisor_franquicias", "gerencia",
     }
     users: list[dict] = []
     skipped: list[dict] = []
@@ -226,7 +227,8 @@ def validate_user_assignment(username: str, role: str, scope_name: str, password
     elif role == "admin":
         raise HTTPException(status_code=422, detail="El único Administrador permitido es el usuario admin fijo.")
     scoped_roles = {
-        "jefe_comercial_ventas", "jefe_comercial_franquicias", "supervisor", "gerencia",
+        "jefe_comercial_ventas", "jefe_comercial_franquicias",
+        "supervisor_ventas", "supervisor_franquicias", "gerencia",
     }
     if role in scoped_roles and not scope_name:
         raise HTTPException(status_code=422, detail="Este rol requiere un alcance asignado.")
@@ -264,8 +266,14 @@ def visible_to_user(row: dict, user: dict) -> bool:
         return division == "Franquicia" and same_name(
             row.get("NomJefeComercial"), user.get("scope_name")
         )
-    if role == "supervisor":
-        return same_name(row.get("NomSupervisor"), user.get("scope_name"))
+    if role == "supervisor_ventas":
+        return division == "Sucursal" and same_name(
+            row.get("NomSupervisor"), user.get("scope_name")
+        )
+    if role == "supervisor_franquicias":
+        return division == "Franquicia" and same_name(
+            row.get("NomSupervisor"), user.get("scope_name")
+        )
     return False
 
 

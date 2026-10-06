@@ -488,7 +488,8 @@ function scopeLabelFor(role) {
   return {
     jefe_comercial_ventas: "Jefe comercial asignado",
     jefe_comercial_franquicias: "Jefe comercial asignado",
-    supervisor: "Supervisor asignado",
+    supervisor_ventas: "Nombre exacto en NomSupervisor",
+    supervisor_franquicias: "Nombre exacto en NomSupervisor",
     gerencia: "Gerencia a la que pertenece",
   }[role];
 }
@@ -659,7 +660,8 @@ $("#new-user-role").addEventListener("change", (event) => {
   const scopeLabels = {
     jefe_comercial_ventas: "Jefe comercial asignado",
     jefe_comercial_franquicias: "Jefe comercial asignado",
-    supervisor: "Supervisor asignado",
+    supervisor_ventas: "Nombre exacto en NomSupervisor",
+    supervisor_franquicias: "Nombre exacto en NomSupervisor",
     gerencia: "Gerencia a la que pertenece",
   };
   const scoped = Object.hasOwn(scopeLabels, event.target.value);

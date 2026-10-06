@@ -15,7 +15,8 @@ ROLES = {
     "gerente_franquicias": "Gerente de franquicias",
     "jefe_comercial_ventas": "Jefe comercial de ventas",
     "jefe_comercial_franquicias": "Jefe comercial de franquicias",
-    "supervisor": "Supervisor",
+    "supervisor_ventas": "Supervisor de ventas",
+    "supervisor_franquicias": "Supervisor de franquicias",
     "gerencia": "Gerencia",
     "viewer": "Visualizador",
 }
@@ -71,7 +72,8 @@ def initialize() -> None:
                 CHECK (role IN (
                     'admin', 'gerente_general', 'gerente_ventas',
                     'gerente_franquicias', 'jefe_comercial_ventas',
-                    'jefe_comercial_franquicias', 'supervisor', 'gerencia', 'viewer'
+                    'jefe_comercial_franquicias', 'supervisor_ventas',
+                    'supervisor_franquicias', 'gerencia', 'viewer'
                 ))
             );
 
@@ -382,6 +384,42 @@ def initialize() -> None:
                    ON action_plan_transactions(actor_username, performed_at DESC)"""
             )
             connection.execute("INSERT INTO schema_migrations (version) VALUES (6)")
+            connection.commit()
+
+        if 7 not in versions:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """CREATE TABLE users_v7 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    full_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    scope_name TEXT,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (role IN (
+                        'admin', 'gerente_general', 'gerente_ventas',
+                        'gerente_franquicias', 'jefe_comercial_ventas',
+                        'jefe_comercial_franquicias', 'supervisor_ventas',
+                        'supervisor_franquicias', 'gerencia', 'viewer'
+                    ))
+                )"""
+            )
+            connection.execute(
+                """INSERT INTO users_v7
+                   (id, username, full_name, password_hash, role, scope_name, active, created_at)
+                   SELECT id, username, full_name, password_hash,
+                          CASE role
+                              WHEN 'supervisor' THEN 'supervisor_ventas'
+                              ELSE role
+                          END,
+                          scope_name, active, created_at
+                   FROM users"""
+            )
+            connection.execute("DROP TABLE users")
+            connection.execute("ALTER TABLE users_v7 RENAME TO users")
+            connection.execute("INSERT INTO schema_migrations (version) VALUES (7)")
             connection.commit()
 
         # Migrate existing plans once, preserving their current state and text.
