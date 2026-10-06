@@ -170,7 +170,7 @@
 
   <dialog id="plan-dialog" class="plan-dialog crm-plan-dialog">
     <form id="plan-form" method="dialog">
-      <div class="dialog-heading crm-fixed-heading"><div><p class="eyebrow">GESTIÓN DE INCIDENCIA</p><h2 id="dialog-title">Plan de acción</h2><p class="crm-subtitle">Revisa los datos, completa el seguimiento y presiona Listo para registrar el cambio.</p></div><button type="button" id="dialog-close" class="icon-button" aria-label="Cerrar">×</button></div>
+      <div class="dialog-heading crm-fixed-heading"><div><p class="eyebrow">GESTIÓN DE INCIDENCIA</p><h2 id="dialog-title">Plan de acción</h2><p id="plan-dialog-subtitle" class="crm-subtitle">Revisa los datos, completa el seguimiento y presiona Listo para registrar el cambio.</p></div><button type="button" id="dialog-close" class="icon-button" aria-label="Cerrar">×</button></div>
       <section class="crm-section crm-evaluation-section">
         <h3>Información de la evaluación</h3>
         <div class="crm-locked-grid">
@@ -187,7 +187,7 @@
           <h3>Seguimiento y compromisos</h3>
           <div class="crm-management-grid">
             <label for="plan-due-date">Fecha de plazo<input id="plan-due-date" type="date"></label>
-            <label for="plan-status">Estado<select id="plan-status"><option value="pendiente">Pendiente</option><option value="en_subsanacion">En subsanación</option><option value="concluido">Concluido</option></select></label>
+            <label for="plan-status">Estado<select id="plan-status"><option value="sin_plan" disabled hidden>Sin plan registrado</option><option value="pendiente">Pendiente</option><option value="en_subsanacion">En subsanación</option><option value="concluido">Concluido</option></select></label>
             <label class="crm-actions-field" for="plan-text">Compromisos, comentarios y acciones<textarea id="plan-text" rows="7" maxlength="10000" placeholder="Registra compromisos, responsables, comentarios y acciones para subsanar la incidencia…"></textarea></label>
           </div>
         </section>
@@ -210,6 +210,6 @@
   </dialog>
 
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="/static/app.js?v=20261005-roles2" defer></script>
+  <script src="/static/app.js?v=20261006-viewer" defer></script>
 </body>
 </html>

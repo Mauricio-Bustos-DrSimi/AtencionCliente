@@ -188,9 +188,7 @@ function localMarkup(code, rows) {
       ? (plan
         ? `<div class="row-action plan-actions"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">Editar plan</button><button class="button danger small plan-delete-button" data-id="${escapeHtml(item.ID)}">Eliminar</button></div>`
         : `<div class="row-action"><button class="button primary small plan-button" data-id="${escapeHtml(item.ID)}">${buttonLabel}</button></div>`)
-      : (plan
-        ? `<div class="row-action"><button class="button outline small plan-button" data-id="${escapeHtml(item.ID)}">Ver plan</button></div>`
-        : "");
+      : `<div class="row-action"><button class="button outline small plan-button" data-id="${escapeHtml(item.ID)}">${plan ? "Ver plan" : "Ver detalle"}</button></div>`;
     return `
       <article class="evaluation-row">
         <div class="identity-col"><div class="eval-source">${escapeHtml(item.Fuente || "Fuente")}</div>
@@ -444,7 +442,10 @@ async function openPlan(id) {
   state.activeEvaluation = item;
   const readOnly = state.user?.can_manage_plans === false;
   planHistoryExpanded = false;
-  $("#dialog-title").textContent = readOnly ? "Detalle del plan de acción" : "Gestión del plan de acción";
+  $("#dialog-title").textContent = readOnly ? "Detalle de la evaluación y plan" : "Gestión del plan de acción";
+  $("#plan-dialog-subtitle").textContent = readOnly
+    ? "Consulta la evaluación, el plan de acción y todo su historial en modo de solo lectura."
+    : "Revisa los datos, completa el seguimiento y presiona Listo para registrar el cambio.";
   $("#plan-unit-code").value = item.CveUnidad || "";
   $("#plan-unit-name").value = item.Unidad || "Local sin nombre";
   $("#plan-supervisor").value = item.NomSupervisor || "Supervisor sin asignar";
@@ -454,14 +455,18 @@ async function openPlan(id) {
   $("#plan-original-comment").textContent = item.Comentario || "Sin comentario asociado.";
   $("#plan-text").value = item.plan?.plan_text || "";
   $("#plan-due-date").value = item.plan?.due_date || "";
-  $("#plan-status").value = item.plan?.status || "pendiente";
+  $("#plan-status").value = readOnly && !item.plan ? "sin_plan" : (item.plan?.status || "pendiente");
   $("#plan-text").disabled = readOnly;
   $("#plan-due-date").disabled = readOnly;
   $("#plan-status").disabled = readOnly;
   $("#plan-save-button").classList.toggle("hidden", readOnly);
   $("#plan-cancel-button").textContent = readOnly ? "Cerrar" : "Cancelar";
   lastPlanSnapshot = planSnapshot();
-  setPlanEditStatus(readOnly ? "Modo solo lectura." : "Sin cambios pendientes.");
+  setPlanEditStatus(
+    readOnly
+      ? (item.plan ? "Modo solo lectura." : "Modo solo lectura · Esta evaluación no tiene un plan registrado.")
+      : "Sin cambios pendientes."
+  );
   $("#plan-error").classList.add("hidden");
   $("#plan-completion-confirmation").classList.add("hidden");
   $("#plan-history").innerHTML = '<p class="history-empty">Cargando historial...</p>';

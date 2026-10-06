@@ -61,7 +61,7 @@ Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de l
 - **Supervisor de ventas:** ve solamente sucursales cuyo `NomSupervisor` coincide con su alcance.
 - **Supervisor de franquicias:** ve solamente franquicias cuyo `NomSupervisor` coincide con su alcance.
 - **Gerencia:** ve todos los locales; el campo de alcance guarda como texto la gerencia a la que pertenece la cuenta.
-- **Visualizador:** ve todos los locales, indicadores y planes existentes, pero no puede crear, editar ni eliminar planes de acción.
+- **Visualizador:** ve todos los locales e indicadores; puede abrir cualquier evaluación para consultar su plan y el historial completo en modo de solo lectura, pero no puede crear, editar ni eliminar planes de acción.
 - **Administrador:** ve todos los locales y administra cuentas.
 
 Los planes funcionan como fichas CRM y se guardan como una actualización completa al presionar `Listo`; `Cancelar`, la X y la tecla Escape descartan la edición local. La API vuelve a comprobar el alcance del usuario antes de cada modificación. Los estados disponibles son pendiente, en subsanación y concluido; el paso a concluido exige una confirmación explícita dentro de la aplicación. La fecha de plazo, los compromisos y cada cambio de estado quedan registrados en el historial con usuario y fecha.
