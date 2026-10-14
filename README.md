@@ -99,7 +99,7 @@ La vista **Semanal** es la pestaña predeterminada y muestra la última semana c
 python -m app.sync --trigger manual
 ```
 
-En Ubuntu, las unidades incluidas en `deploy/` programan la carga cada lunes a las 06:00, hora de Santiago.
+En Ubuntu, las unidades incluidas en `deploy/` programan la carga todos los días a las 07:00, hora de Santiago. La sincronización intenta cargar la última semana completa de lunes a domingo; si la fuente todavía no contiene datos de ese corte, el panel informa y muestra la última semana que realmente tiene registros.
 
 ## Producción en Ubuntu
 

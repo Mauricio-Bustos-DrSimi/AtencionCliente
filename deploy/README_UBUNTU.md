@@ -100,7 +100,7 @@ journalctl -u atencion-cliente -n 100 --no-pager
 journalctl -u atencion-cliente-sync.service -n 100 --no-pager
 ```
 
-El temporizador ejecuta la consulta todos los lunes a las 06:00 en la zona `America/Santiago`. `Persistent=true` hace que systemd ejecute una carga pendiente al volver a encender el servidor. El servicio web usa un solo proceso para compartir de manera consistente la SQLite local.
+El temporizador ejecuta la consulta todos los días a las 07:00 en la zona `America/Santiago`. La carga intenta usar la última semana completa de lunes a domingo; si la fuente todavía no contiene registros de ese corte, conserva como período visible la última semana que realmente tiene datos. `Persistent=true` hace que systemd ejecute una carga pendiente al volver a encender el servidor. El servicio web usa un solo proceso para compartir de manera consistente la SQLite local.
 
 ## 7. Nginx
 

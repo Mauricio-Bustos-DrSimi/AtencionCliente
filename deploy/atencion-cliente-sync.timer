@@ -1,8 +1,9 @@
 [Unit]
-Description=Ejecuta la sincronización de Atención al Cliente cada lunes a las 06:00
+Description=Ejecuta la sincronización diaria de Atención al Cliente a las 07:00
 
 [Timer]
-OnCalendar=Mon *-*-* 06:00:00 America/Santiago
+OnCalendar=*-*-* 07:00:00 America/Santiago
+AccuracySec=1min
 Persistent=true
 Unit=atencion-cliente-sync.service
 

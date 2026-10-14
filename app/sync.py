@@ -123,7 +123,7 @@ def run_sync(
             logger.warning(
                 "[sincronización %s] El corte calendario no tiene registros; "
                 "se usarán los datos de la última semana disponible (%s al %s) "
-                "sin cambiar el período oficial del corte.",
+                "y ese será el período informado en el panel.",
                 run_id,
                 snapshot_start,
                 snapshot_end,
@@ -189,7 +189,7 @@ def run_sync(
 
             connection.execute(
                 "DELETE FROM weekly_evaluations WHERE week_start = ?",
-                (week_start.isoformat(),),
+                (snapshot_start.isoformat(),),
             )
             for attention_id, _, payload, payload_hash, row_date_text in weekly_rows:
                 connection.execute(
@@ -198,7 +198,7 @@ def run_sync(
                         payload_json, payload_hash, sync_run_id, captured_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        week_start.isoformat(), week_end.isoformat(), attention_id,
+                        snapshot_start.isoformat(), snapshot_end.isoformat(), attention_id,
                         row_date_text, payload, payload_hash, run_id, completed_at,
                     ),
                 )
@@ -217,15 +217,15 @@ def run_sync(
                        historical_unchanged = ?, error_message = NULL
                    WHERE id = ?""",
                 (
-                    week_start.isoformat(), week_end.isoformat(), completed_at,
+                    snapshot_start.isoformat(), snapshot_end.isoformat(), completed_at,
                     len(unique_rows), len(weekly_rows), inserted, updated, unchanged,
                     run_id,
                 ),
             )
         result = {
             "run_id": run_id,
-            "week_start": week_start.isoformat(),
-            "week_end": week_end.isoformat(),
+            "week_start": snapshot_start.isoformat(),
+            "week_end": snapshot_end.isoformat(),
             "source_rows": len(unique_rows),
             "weekly_rows": len(weekly_rows),
             "historical_inserted": inserted,
