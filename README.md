@@ -66,6 +66,10 @@ Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de l
 
 Los planes funcionan como fichas CRM y se guardan como una actualización completa al presionar `Listo`; `Cancelar`, la X y la tecla Escape descartan la edición local. La API vuelve a comprobar el alcance del usuario antes de cada modificación. Los estados disponibles son pendiente, en subsanación y concluido; el paso a concluido exige una confirmación explícita dentro de la aplicación. La fecha de plazo, los compromisos y cada cambio de estado quedan registrados en el historial con usuario y fecha.
 
+El botón **Guía de uso** inicia un tutorial paso a paso que explica navegación, vistas, indicadores, filtros, estados, evaluaciones y acciones disponibles según el rol conectado.
+
+El botón **Exportar planes concluidos** genera un Excel con todos los planes concluidos visibles para el usuario, independientemente de que la pantalla esté en la vista semanal o histórica. El archivo incluye los datos del local, evaluación, comentario, compromisos, responsables, fechas y los días transcurridos hasta crear y concluir el plan. Si el usuario no tiene planes concluidos dentro de su alcance, la aplicación informa que no existen registros para exportar y no descarga un archivo vacío.
+
 ## Configuración de SQL
 
 Edita `.env` localmente. No guardes credenciales reales en el repositorio. Variables disponibles: `ATENCION_SQL_SERVER`, `ATENCION_SQL_DATABASE`, `ATENCION_SQL_USER`, `ATENCION_SQL_PASSWORD`, `ATENCION_SQL_DRIVER`, y sus equivalentes `LOCALES_SQL_*`.

@@ -3,13 +3,17 @@ import io
 import logging
 import secrets
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -361,6 +365,167 @@ def period_label(start: date, end: date) -> str:
     )
 
 
+def local_datetime(value: object) -> datetime | None:
+    """Convierte las fechas UTC de SQLite a la hora local de Santiago."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("America/Santiago"))
+
+
+def completed_plan_rows(user: dict) -> list[dict]:
+    """Reúne todos los planes concluidos visibles para el usuario."""
+    plans = get_plans()
+    rows = []
+    for evaluation in load_visible_rows(user, "historical"):
+        attention_id = str(evaluation.get("ID") or "").strip()
+        plan = plans.get(attention_id)
+        if not plan or plan["status"] != "concluido":
+            continue
+        evaluation_day = parse_evaluation_date(evaluation.get("Fecha"))
+        created_at = local_datetime(plan.get("created_at"))
+        completed_at = local_datetime(plan.get("completed_at"))
+        days_to_create = (
+            max((created_at.date() - evaluation_day).days, 0)
+            if evaluation_day and created_at else None
+        )
+        management_days = (
+            max((completed_at.date() - created_at.date()).days, 0)
+            if created_at and completed_at else None
+        )
+        days_to_complete = (
+            max((completed_at.date() - evaluation_day).days, 0)
+            if evaluation_day and completed_at else None
+        )
+        rows.append({
+            "ID evaluación": attention_id,
+            "Código de unidad": evaluation.get("CveUnidad") or "",
+            "Unidad": evaluation.get("Unidad") or "",
+            "Tipo de local": division_for(evaluation),
+            "Supervisor": evaluation.get("NomSupervisor") or "",
+            "Jefe comercial": evaluation.get("NomJefeComercial") or "",
+            "Fuente": evaluation.get("Fuente") or "",
+            "Fecha de evaluación": evaluation_day,
+            "Clasificación": category(evaluation),
+            "Comentario de la evaluación": evaluation.get("Comentario") or "",
+            "Estado": "Concluido",
+            "Compromisos, comentarios y acciones": plan.get("plan_text") or "",
+            "Fecha de plazo": parse_evaluation_date(plan.get("due_date")),
+            "Creado por": plan.get("created_by") or "",
+            "Fecha de creación del plan": created_at,
+            "Días hasta crear el plan": days_to_create,
+            "Concluido por": plan.get("updated_by") or "",
+            "Fecha de conclusión": completed_at,
+            "Días de gestión del plan": management_days,
+            "Días desde evaluación hasta conclusión": days_to_complete,
+        })
+    return sorted(
+        rows,
+        key=lambda item: item["Fecha de conclusión"] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
+
+def completed_plans_workbook(rows: list[dict]) -> io.BytesIO:
+    """Construye un Excel legible y filtrable con los planes concluidos."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Planes concluidos"
+    headers = list(rows[0]) if rows else [
+        "ID evaluación", "Código de unidad", "Unidad", "Tipo de local",
+        "Supervisor", "Jefe comercial", "Fuente", "Fecha de evaluación",
+        "Clasificación", "Comentario de la evaluación", "Estado",
+        "Compromisos, comentarios y acciones", "Fecha de plazo", "Creado por",
+        "Fecha de creación del plan", "Días hasta crear el plan", "Concluido por",
+        "Fecha de conclusión", "Días de gestión del plan",
+        "Días desde evaluación hasta conclusión",
+    ]
+    last_column = get_column_letter(len(headers))
+    sheet.merge_cells(f"A1:{last_column}1")
+    sheet["A1"] = "EXPERIENCIA ATENCIÓN AL CLIENTE · PLANES DE ACCIÓN CONCLUIDOS"
+    sheet["A1"].font = Font(name="Aptos Display", size=16, bold=True, color="FFFFFF")
+    sheet["A1"].fill = PatternFill("solid", fgColor="123B5D")
+    sheet["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    sheet.row_dimensions[1].height = 30
+    sheet.merge_cells(f"A2:{last_column}2")
+    sheet["A2"] = (
+        f"Registros: {len(rows)} · Generado: "
+        f"{datetime.now(ZoneInfo('America/Santiago')).strftime('%d-%m-%Y %H:%M')}"
+    )
+    sheet["A2"].font = Font(name="Aptos", size=10, italic=True, color="52677A")
+    sheet["A2"].fill = PatternFill("solid", fgColor="EAF2F7")
+    sheet["A2"].alignment = Alignment(vertical="center")
+    sheet.row_dimensions[2].height = 22
+
+    header_row = 4
+    header_fill = PatternFill("solid", fgColor="2877A6")
+    header_font = Font(name="Aptos", size=10, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style="thin", color="D9E3EA"),
+        right=Side(style="thin", color="D9E3EA"),
+        top=Side(style="thin", color="D9E3EA"),
+        bottom=Side(style="thin", color="D9E3EA"),
+    )
+    for column, header in enumerate(headers, 1):
+        cell = sheet.cell(header_row, column, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+    sheet.row_dimensions[header_row].height = 34
+
+    for row_number, item in enumerate(rows, header_row + 1):
+        row_fill = PatternFill("solid", fgColor="F5F9FC" if row_number % 2 else "FFFFFF")
+        for column, header in enumerate(headers, 1):
+            value = item.get(header)
+            if isinstance(value, datetime) and value.tzinfo:
+                value = value.replace(tzinfo=None)
+            cell = sheet.cell(row_number, column, value)
+            cell.fill = PatternFill("solid", fgColor="E5F6EC") if header == "Estado" else row_fill
+            cell.font = Font(name="Aptos", size=10, bold=header == "Estado", color="217447" if header == "Estado" else "24364A")
+            cell.alignment = Alignment(vertical="top", wrap_text=header in {
+                "Comentario de la evaluación", "Compromisos, comentarios y acciones"
+            })
+            cell.border = thin_border
+            if isinstance(value, datetime):
+                cell.number_format = "dd-mm-yyyy hh:mm"
+            elif isinstance(value, date):
+                cell.number_format = "dd-mm-yyyy"
+        sheet.row_dimensions[row_number].height = 42
+
+    widths = {
+        "ID evaluación": 23, "Código de unidad": 16, "Unidad": 28,
+        "Tipo de local": 16, "Supervisor": 28, "Jefe comercial": 28,
+        "Fuente": 14, "Fecha de evaluación": 18, "Clasificación": 15,
+        "Comentario de la evaluación": 48, "Estado": 14,
+        "Compromisos, comentarios y acciones": 55, "Fecha de plazo": 16,
+        "Creado por": 18, "Fecha de creación del plan": 22,
+        "Días hasta crear el plan": 20, "Concluido por": 18,
+        "Fecha de conclusión": 21, "Días de gestión del plan": 22,
+        "Días desde evaluación hasta conclusión": 28,
+    }
+    for index, header in enumerate(headers, 1):
+        sheet.column_dimensions[get_column_letter(index)].width = widths.get(header, 18)
+    sheet.freeze_panes = "A5"
+    sheet.auto_filter.ref = f"A4:{last_column}{max(header_row + len(rows), header_row)}"
+    sheet.sheet_view.showGridLines = False
+    sheet.auto_filter.add_filter_column(headers.index("Estado"), ["Concluido"])
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
 @app.post("/api/login")
 def login(body: LoginBody, request: Request):
     user = get_user(body.username.strip())
@@ -449,6 +614,26 @@ def dashboard(view: str = "weekly", user=Depends(current_user)):
         "period": period,
         "last_sync": latest_sync,
     }
+
+
+@app.get("/api/exports/completed-plans")
+def export_completed_plans(user=Depends(current_user)):
+    """Exporta todos los planes concluidos dentro del alcance del usuario."""
+    rows = completed_plan_rows(user)
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay planes concluidos para exportar.",
+        )
+    filename = (
+        "Planes_Accion_Concluidos_"
+        f"{datetime.now(ZoneInfo('America/Santiago')).strftime('%Y%m%d_%H%M')}.xlsx"
+    )
+    return StreamingResponse(
+        completed_plans_workbook(rows),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/attention/{attention_id}/history")

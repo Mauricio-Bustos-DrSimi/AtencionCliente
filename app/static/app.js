@@ -3,6 +3,8 @@ const $ = (selector) => document.querySelector(selector);
 let planHistoryTransactions = [];
 let planHistoryExpanded = false;
 let lastPlanSnapshot = "";
+let tutorialSteps = [];
+let tutorialStepIndex = 0;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -57,6 +59,143 @@ function showToast(message, isError = false) {
   toast.classList.toggle("error", isError);
   toast.classList.remove("hidden");
   window.setTimeout(() => toast.classList.add("hidden"), 3600);
+}
+
+function availableTutorialSteps() {
+  const steps = [
+    {
+      selector: null,
+      title: "Bienvenido a la plataforma",
+      description: "Esta guía explica los espacios y controles principales. Puedes cerrarla y volver a iniciarla cuando quieras desde el botón Guía de uso.",
+    },
+    {
+      selector: ".sidebar nav",
+      title: "Navegación principal",
+      description: "Panel de gestión abre las evaluaciones y sus planes. Los administradores también encuentran aquí la administración de usuarios.",
+    },
+    {
+      selector: "#dataset-tabs",
+      title: "Vista semanal e histórica",
+      description: "Semanal muestra el último corte disponible. Histórico reúne todas las evaluaciones guardadas, incluidas las que ya no pertenecen a la semana actual.",
+    },
+    {
+      selector: "#period-banner",
+      title: "Período y sincronización",
+      description: "Este espacio indica exactamente qué fechas estás viendo. Debajo aparece cuándo se sincronizaron por última vez las fuentes de información.",
+    },
+    {
+      selector: "#kpi-grid",
+      title: "Indicadores principales",
+      description: "Resume la cantidad de evaluaciones malas, regulares y buenas, separando franquicias y sucursales dentro del alcance de tu perfil.",
+    },
+    {
+      selector: ".filters",
+      title: "Filtros de evaluaciones",
+      description: "Combina clasificación, tipo de local, fuente, fechas y búsqueda. Limpiar filtros devuelve todos los registros de la vista seleccionada.",
+    },
+    {
+      selector: "#plan-tabs",
+      title: "Estados de los planes",
+      description: "Estos botones separan evaluaciones con planes pendientes, en subsanación o concluidos. El número indica cuántos registros hay en cada estado.",
+    },
+    {
+      selector: ".age-legend",
+      title: "Antigüedad de la evaluación",
+      description: "El semáforo indica los días transcurridos desde la evaluación: verde hasta 3 días, amarillo entre 4 y 7, y rojo desde 8 días.",
+    },
+    {
+      selector: ".content-card",
+      title: state.user?.can_manage_plans ? "Evaluaciones y planes de acción" : "Consulta de evaluaciones y planes",
+      description: state.user?.can_manage_plans
+        ? "Cada local agrupa sus evaluaciones. Abrir o Editar plan permite registrar el plazo, los compromisos y el estado; cada cambio confirmado queda en el historial."
+        : "Cada local agrupa sus evaluaciones. Ver plan permite consultar sus compromisos, estado e historial sin modificar información.",
+    },
+    {
+      selector: "#export-completed-plans",
+      title: "Exportar planes concluidos",
+      description: "Descarga un Excel con todos los planes concluidos que puedes ver, aunque pertenezcan a semanas anteriores. Incluye fechas, responsables y tiempos de gestión.",
+    },
+  ];
+  if (state.user?.role === "admin") {
+    steps.push({
+      selector: "#users-nav",
+      title: "Usuarios y permisos",
+      description: "Como administrador puedes crear, importar, editar y eliminar cuentas, además de asignar el rol y alcance de cada persona.",
+    });
+  }
+  steps.push({
+    selector: ".user-block",
+    title: "Tu sesión",
+    description: "Aquí puedes confirmar el usuario y rol activos. Cerrar sesión termina el acceso de forma segura en este navegador.",
+  });
+  return steps.filter((step) => !step.selector || document.querySelector(step.selector));
+}
+
+function clearTutorialHighlight() {
+  document.querySelectorAll(".tutorial-highlight").forEach((element) => element.classList.remove("tutorial-highlight"));
+}
+
+function renderTutorialStep() {
+  clearTutorialHighlight();
+  const step = tutorialSteps[tutorialStepIndex];
+  if (!step) return;
+  const target = step.selector ? document.querySelector(step.selector) : null;
+  if (target) {
+    target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    target.classList.add("tutorial-highlight");
+  }
+  $("#tutorial-step-count").textContent = `Paso ${tutorialStepIndex + 1} de ${tutorialSteps.length}`;
+  $("#tutorial-progress-bar").style.width = `${((tutorialStepIndex + 1) / tutorialSteps.length) * 100}%`;
+  $("#tutorial-title").textContent = step.title;
+  $("#tutorial-description").textContent = step.description;
+  $("#tutorial-previous").disabled = tutorialStepIndex === 0;
+  $("#tutorial-next").textContent = tutorialStepIndex === tutorialSteps.length - 1 ? "Finalizar" : "Siguiente";
+}
+
+function closeTutorial() {
+  clearTutorialHighlight();
+  $("#tutorial-overlay").classList.add("hidden");
+  $("#tutorial-overlay").setAttribute("aria-hidden", "true");
+}
+
+function startTutorial() {
+  setView("dashboard");
+  tutorialSteps = availableTutorialSteps();
+  tutorialStepIndex = 0;
+  $("#tutorial-overlay").classList.remove("hidden");
+  $("#tutorial-overlay").setAttribute("aria-hidden", "false");
+  renderTutorialStep();
+}
+
+async function downloadCompletedPlans() {
+  const button = $("#export-completed-plans");
+  const originalLabel = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "Preparando Excel…";
+  try {
+    const response = await fetch("/api/exports/completed-plans", { credentials: "same-origin" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      if (response.status === 401) showLogin();
+      throw new Error(body.detail || `No fue posible exportar (error ${response.status}).`);
+    }
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "Planes_Accion_Concluidos.xlsx";
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast("Excel de planes concluidos generado correctamente.");
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = originalLabel;
+  }
 }
 
 function categoryClass(category) {
@@ -140,7 +279,7 @@ function renderPeriod(period) {
 
 function renderSyncStatus(lastSync) {
   if (!lastSync) {
-    $("#sync-status").textContent = "Aún no se ha ejecutado la primera sincronización semanal.";
+    $("#sync-status").textContent = "Aún no se ha ejecutado la primera sincronización.";
     return;
   }
   const completed = lastSync.completed_at
@@ -570,6 +709,38 @@ $("#login-form").addEventListener("submit", async (event) => {
 $("#logout-button").addEventListener("click", async () => {
   try { await api("/api/logout", { method: "POST", body: "{}" }); } catch (_) { /* Clear local view anyway. */ }
   showLogin();
+});
+$("#tutorial-button").addEventListener("click", startTutorial);
+$("#tutorial-close").addEventListener("click", closeTutorial);
+$("#tutorial-previous").addEventListener("click", () => {
+  if (tutorialStepIndex > 0) {
+    tutorialStepIndex -= 1;
+    renderTutorialStep();
+  }
+});
+$("#tutorial-next").addEventListener("click", () => {
+  if (tutorialStepIndex >= tutorialSteps.length - 1) {
+    closeTutorial();
+    return;
+  }
+  tutorialStepIndex += 1;
+  renderTutorialStep();
+});
+$("#export-completed-plans").addEventListener("click", downloadCompletedPlans);
+document.addEventListener("keydown", (event) => {
+  if ($("#tutorial-overlay").classList.contains("hidden")) return;
+  if (event.key === "Escape") closeTutorial();
+  if (event.key === "ArrowLeft" && tutorialStepIndex > 0) {
+    tutorialStepIndex -= 1;
+    renderTutorialStep();
+  }
+  if (event.key === "ArrowRight") {
+    if (tutorialStepIndex >= tutorialSteps.length - 1) closeTutorial();
+    else {
+      tutorialStepIndex += 1;
+      renderTutorialStep();
+    }
+  }
 });
 document.querySelectorAll(".dataset-tab").forEach((button) => button.addEventListener("click", async () => {
   state.activeDatasetView = button.dataset.datasetView;

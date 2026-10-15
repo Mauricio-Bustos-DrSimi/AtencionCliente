@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#123b5d">
   <title>Experiencia Atención al Cliente</title>
   <link rel="icon" type="image/png" href="/images/perfil.png">
-  <link rel="stylesheet" href="/static/styles.css?v=20261005-crm3">
+  <link rel="stylesheet" href="/static/styles.css?v=20261015-tutorial-export">
 </head>
 <body>
   <section id="login-screen" class="login-screen">
@@ -54,12 +54,19 @@
         <div class="mobile-brand"><img class="brand-image" src="/images/logo%20dr%20simi.png" alt="Farmacias del Dr. Simi"><b>Atención</b></div>
         <div class="topbar-spacer"></div>
         <div class="user-block"><span id="user-avatar" class="avatar">U</span><span><b id="user-name">Usuario</b><small id="user-role">Rol</small></span></div>
+        <button id="tutorial-button" class="button outline" type="button"><span aria-hidden="true">?</span> Guía de uso</button>
         <button id="logout-button" class="button outline">Cerrar sesión</button>
       </header>
 
       <section id="dashboard-view" class="view-content">
         <div class="page-heading">
           <div><p class="eyebrow">RESUMEN OPERACIONAL</p><h1>Experiencia Atención al Cliente</h1><p id="scope-copy" class="muted">Evaluaciones y seguimiento por local.</p></div>
+          <div class="page-heading-actions">
+            <div class="export-action">
+              <button id="export-completed-plans" class="button primary" type="button" aria-describedby="export-completed-description" title="Descarga todos los planes concluidos disponibles dentro de tu alcance"><span aria-hidden="true">⇩</span> Exportar planes concluidos</button>
+              <p id="export-completed-description">Descarga todos los planes concluidos del histórico que estén dentro de tu alcance.</p>
+            </div>
+          </div>
         </div>
         <div id="dataset-tabs" class="dataset-tabs" role="tablist" aria-label="Período de evaluaciones">
           <button type="button" class="dataset-tab active" role="tab" aria-selected="true" data-dataset-view="weekly">Semanal</button>
@@ -209,7 +216,22 @@
     </form>
   </dialog>
 
+  <div id="tutorial-overlay" class="tutorial-overlay hidden" aria-hidden="true">
+    <div class="tutorial-backdrop"></div>
+    <section class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+      <div class="tutorial-progress"><span id="tutorial-step-count">Paso 1 de 1</span><button id="tutorial-close" class="tutorial-close" type="button" aria-label="Cerrar tutorial">×</button></div>
+      <div class="tutorial-progress-track"><span id="tutorial-progress-bar"></span></div>
+      <p class="eyebrow">GUÍA DE USO</p>
+      <h2 id="tutorial-title">Bienvenido</h2>
+      <p id="tutorial-description"></p>
+      <div class="tutorial-actions">
+        <button id="tutorial-previous" class="button outline" type="button">Anterior</button>
+        <button id="tutorial-next" class="button primary" type="button">Siguiente</button>
+      </div>
+    </section>
+  </div>
+
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="/static/app.js?v=20261006-viewer" defer></script>
+  <script src="/static/app.js?v=20261015-tutorial-export" defer></script>
 </body>
 </html>
