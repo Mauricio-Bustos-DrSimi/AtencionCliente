@@ -6,7 +6,7 @@ Esta guía supone el usuario Linux `mbustos`, el repositorio en `/home/mbustos/A
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git curl ca-certificates python3 python3-venv python3-dev build-essential unixodbc-dev nginx
+sudo apt-get install -y git curl ca-certificates python3 python3-venv python3-dev build-essential unixodbc-dev nginx sqlite3
 ```
 
 Instala Microsoft ODBC Driver 17 usando el repositorio correspondiente a la versión de Ubuntu:
@@ -59,7 +59,9 @@ APP_DATABASE_PATH=/home/mbustos/AtencionCliente/data/app_atencion.sqlite3
 APP_SESSION_HTTPS_ONLY=false
 ```
 
-Usa `APP_SESSION_HTTPS_ONLY=true` únicamente después de habilitar HTTPS en el proxy. En la primera ejecución se crea `admin` con contraseña fija `admin123`; cada reinicio restaura esa contraseña.
+`APP_SECRET_KEY` debe contener al menos 32 caracteres aleatorios; si falta, el servicio no inicia. Crea el administrador con `.venv/bin/python -m app.cli set-password --username admin`; la consola pedirá una contraseña nueva de al menos 12 caracteres sin mostrarla ni guardarla en el repositorio. La aplicación no arranca hasta completar este paso. La contraseña de `admin` no se restaura en los reinicios. Usa `APP_SESSION_HTTPS_ONLY=true` después de habilitar HTTPS en el proxy; por HTTP, las credenciales y las sesiones pueden quedar expuestas a usuarios de la misma red.
+
+ODBC 17 no cifra toda la conexión de forma predeterminada. La aplicación ahora solicita `Encrypt=yes` para ambas fuentes SQL. Si `*_SQL_TRUST_CERTIFICATE=yes`, el tráfico va cifrado pero el certificado del servidor no se valida. Para completar esa validación instala una cadena de confianza en Ubuntu, conecta por el nombre certificado del servidor y cambia `ATENCION_SQL_TRUST_CERTIFICATE=no` y `LOCALES_SQL_TRUST_CERTIFICATE=no`.
 
 ## 4. Crear las tablas y ejecutar la primera sincronización
 
@@ -85,7 +87,7 @@ curl --fail http://127.0.0.1:8000/api/health
 
 Detén la prueba con `Ctrl+C` antes de instalar el servicio.
 
-## 6. Servicio web y sincronización semanal con systemd
+## 6. Servicio web y sincronización diaria con systemd
 
 ```bash
 sudo cp deploy/atencion-cliente.service /etc/systemd/system/atencion-cliente.service
@@ -131,11 +133,15 @@ Para actualizar desde GitHub:
 
 ```bash
 cd /home/mbustos/AtencionCliente
+sudo systemctl stop atencion-cliente.service
+umask 077
+sqlite3 data/app_atencion.sqlite3 ".backup 'data/app_atencion_pre_seguridad_$(date +%Y%m%d_%H%M%S).sqlite3'"
 git pull --ff-only origin main
 .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m app.cli set-password --username admin
 sudo systemctl restart atencion-cliente
 sudo systemctl restart atencion-cliente-sync.timer
 curl --fail http://127.0.0.1:8000/api/health
 ```
 
-Respalda periódicamente `data/app_atencion.sqlite3`; contiene usuarios, planes e historial. El archivo `.env` contiene secretos y no debe copiarse al repositorio.
+La rotación de `admin` es obligatoria una sola vez al aplicar esta actualización. Los usuarios deberán iniciar sesión nuevamente, porque las sesiones anteriores quedan invalidadas. Verifica los registros con `sudo journalctl -u atencion-cliente.service -n 100 --no-pager`. Respalda periódicamente `data/app_atencion.sqlite3`; contiene usuarios, planes e historial. El archivo `.env` contiene secretos y no debe copiarse al repositorio. Antes de permitir acceso a toda la red corporativa, sirve la aplicación por HTTPS y activa `APP_SESSION_HTTPS_ONLY=true`.

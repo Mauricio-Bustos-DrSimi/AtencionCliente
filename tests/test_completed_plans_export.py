@@ -90,6 +90,16 @@ class CompletedPlansExportTests(unittest.TestCase):
         self.assertEqual(sheet.auto_filter.ref, "A4:T5")
         self.assertEqual(sheet.freeze_panes, "A5")
 
+    def test_source_text_is_not_executed_as_an_excel_formula(self):
+        self.insert_concluded_plan()
+        rows = completed_plan_rows({"role": "admin", "scope_name": None})
+        rows[0]["Comentario de la evaluación"] = "=1+1"
+
+        sheet = load_workbook(completed_plans_workbook(rows))["Planes concluidos"]
+
+        self.assertEqual(sheet["J5"].data_type, "s")
+        self.assertEqual(sheet["J5"].value, "'=1+1")
+
     def test_export_respects_the_logged_in_users_scope(self):
         self.insert_concluded_plan()
 

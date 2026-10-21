@@ -20,9 +20,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
 from .db import (
     PLAN_STATUSES,
-    FIXED_ADMIN_PASSWORD,
     FIXED_ADMIN_USERNAME,
     ROLES,
+    admin_password_is_ready,
+    clear_login_failures,
     delete_user_account,
     delete_plan,
     get_latest_sync_run,
@@ -32,6 +33,8 @@ from .db import (
     get_user,
     initialize,
     list_users,
+    login_is_locked,
+    record_login_failure,
     save_plan,
     save_user,
     save_users_batch,
@@ -61,10 +64,18 @@ app.mount("/images", StaticFiles(directory=IMAGE_DIR), name="images")
 @app.middleware("http")
 async def prevent_stale_application_data(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path == "/" or request.url.path.startswith("/api/"):
+    if request.url.path == "/" or request.url.path.startswith(("/api/", "/static/")):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    )
     return response
 
 
@@ -102,7 +113,13 @@ class UserUpdateBody(BaseModel):
 
 @app.on_event("startup")
 def startup() -> None:
+    if len(settings.secret_key) < 32 or settings.secret_key == "replace-with-a-random-secret":
+        raise RuntimeError("Configura APP_SECRET_KEY con al menos 32 caracteres aleatorios.")
     initialize()
+    if not admin_password_is_ready():
+        raise RuntimeError(
+            "Configura la contraseña de admin con: python -m app.cli set-password --username admin"
+        )
 
 
 @app.get("/", include_in_schema=False)
@@ -123,7 +140,11 @@ def current_user(request: Request):
     if not username:
         raise HTTPException(status_code=401, detail="Inicia sesión para continuar.")
     user = get_user(username)
-    if not user:
+    if (
+        not user
+        or request.session.get("auth_version") != user["auth_version"]
+        or (user["role"] == "admin" and user["username"].casefold() != FIXED_ADMIN_USERNAME)
+    ):
         request.session.clear()
         raise HTTPException(status_code=401, detail="La sesión ya no está activa.")
     return dict(user)
@@ -226,8 +247,6 @@ def validate_user_assignment(username: str, role: str, scope_name: str, password
     if username.casefold() == FIXED_ADMIN_USERNAME:
         if role != "admin":
             raise HTTPException(status_code=422, detail="El usuario admin debe conservar el rol Administrador.")
-        if password is not None and password != FIXED_ADMIN_PASSWORD:
-            raise HTTPException(status_code=422, detail="La contraseña del usuario admin es fija.")
     elif role == "admin":
         raise HTTPException(status_code=422, detail="El único Administrador permitido es el usuario admin fijo.")
     scoped_roles = {
@@ -486,6 +505,8 @@ def completed_plans_workbook(rows: list[dict]) -> io.BytesIO:
             value = item.get(header)
             if isinstance(value, datetime) and value.tzinfo:
                 value = value.replace(tzinfo=None)
+            if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+                value = "'" + value
             cell = sheet.cell(row_number, column, value)
             cell.fill = PatternFill("solid", fgColor="E5F6EC") if header == "Estado" else row_fill
             cell.font = Font(name="Aptos", size=10, bold=header == "Estado", color="217447" if header == "Estado" else "24364A")
@@ -528,11 +549,22 @@ def completed_plans_workbook(rows: list[dict]) -> io.BytesIO:
 
 @app.post("/api/login")
 def login(body: LoginBody, request: Request):
-    user = get_user(body.username.strip())
-    if not user or not verify_password(body.password, user["password_hash"]):
+    username = body.username.strip()
+    if login_is_locked(username):
+        raise HTTPException(status_code=429, detail="Demasiados intentos. Intenta nuevamente en 15 minutos.")
+    user = get_user(username)
+    if user and user["role"] == "admin" and user["username"].casefold() != FIXED_ADMIN_USERNAME:
+        record_login_failure(username)
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
+    if user and user["role"] == "admin" and not user["password_ready"]:
+        raise HTTPException(status_code=503, detail="La cuenta administradora requiere una contraseña nueva.")
+    if not user or not verify_password(body.password, user["password_hash"]):
+        record_login_failure(username)
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
+    clear_login_failures(username)
     request.session.clear()
     request.session["username"] = user["username"]
+    request.session["auth_version"] = user["auth_version"]
     request.session["csrf_token"] = secrets.token_urlsafe(32)
     return {
         "username": user["username"],

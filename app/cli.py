@@ -1,12 +1,14 @@
 import argparse
 from getpass import getpass
 
-from .db import ROLES, get_user, initialize, list_users, save_user
+from .db import ROLES, FIXED_ADMIN_USERNAME, get_user, initialize, list_users, save_user, set_account_password
 from .security import hash_password
 
 
 def create_account(username: str, full_name: str, role: str, scope_name: str | None):
     initialize()
+    if role == "admin" and username.casefold() != FIXED_ADMIN_USERNAME:
+        raise SystemExit("La cuenta administradora debe llamarse admin.")
     if any(row["username"].casefold() == username.casefold() for row in list_users()):
         raise SystemExit(f"The username {username!r} already exists.")
     if role not in ROLES:
@@ -29,14 +31,17 @@ def create_account(username: str, full_name: str, role: str, scope_name: str | N
         except ValueError as exc:
             print(exc)
 
-    save_user(username, full_name, password_hash, role, scope_name)
+    if role == "admin":
+        set_account_password(FIXED_ADMIN_USERNAME, password_hash)
+    else:
+        save_user(username, full_name, password_hash, role, scope_name)
     print(f"Account {username!r} created with role {ROLES[role]}.")
 
 
 def change_password(username: str):
     initialize()
     existing = get_user(username)
-    if not existing:
+    if not existing and username.casefold() != FIXED_ADMIN_USERNAME:
         raise SystemExit(f"No active account found for {username!r}.")
     while True:
         password = getpass("New password (minimum 12 characters): ")
@@ -49,13 +54,7 @@ def change_password(username: str):
             break
         except ValueError as exc:
             print(exc)
-    from .db import db_session
-
-    with db_session() as connection:
-        connection.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (encoded, username),
-        )
+    set_account_password(username, encoded)
     print(f"Password updated for {username!r}.")
 
 

@@ -15,7 +15,7 @@ Aplicación local con FastAPI para revisar evaluaciones, registrar planes de acc
    ```
 
 3. Copia `.env.example` a `.env`, establece `APP_SECRET_KEY` y configura usuarios y contraseñas SQL para ambas fuentes. La primera consulta usa `172.23.1.128 / simicl_almacen`; el maestro de locales usa `172.23.1.30 / DW_Simi`.
-4. La aplicación crea y mantiene automáticamente el administrador fijo `admin`, con contraseña fija `admin123`. El usuario, rol, estado y contraseña se restauran al iniciar.
+4. Crea o rota una vez la contraseña del administrador fijo `admin` con `python -m app.cli set-password --username admin`. La aplicación no se inicia mientras esa rotación esté pendiente. La contraseña nunca se restaura al reiniciar.
 
 5. Inicia el servicio local:
 
@@ -50,7 +50,7 @@ Para cambiar una contraseña local desde PowerShell:
 python -m app.cli set-password --username admin
 ```
 
-Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de las cuentas, además de eliminar cuentas que no sean `admin`. Las contraseñas se guardan con hash y no se pueden recuperar ni mostrar después de ser guardadas; se pueden restablecer desde la edición de cada usuario.
+Desde **Usuarios**, `admin` puede editar nombre, rol, alcance y contraseña de las cuentas, además de eliminar cuentas que no sean `admin`. La cuenta `admin` conserva su rol y no se puede eliminar, pero su contraseña sí se puede rotar. Las contraseñas se guardan con hash y no se pueden recuperar ni mostrar después de ser guardadas; se pueden restablecer desde la edición de cada usuario. Cambiar rol, alcance o contraseña cierra las sesiones anteriores de esa cuenta.
 
 ## Roles y alcance
 
@@ -72,7 +72,7 @@ El botón **Exportar planes concluidos** genera un Excel con todos los planes co
 
 ## Configuración de SQL
 
-Edita `.env` localmente. No guardes credenciales reales en el repositorio. Variables disponibles: `ATENCION_SQL_SERVER`, `ATENCION_SQL_DATABASE`, `ATENCION_SQL_USER`, `ATENCION_SQL_PASSWORD`, `ATENCION_SQL_DRIVER`, y sus equivalentes `LOCALES_SQL_*`.
+Edita `.env` localmente. No guardes credenciales reales en el repositorio. Variables disponibles: `ATENCION_SQL_SERVER`, `ATENCION_SQL_DATABASE`, `ATENCION_SQL_USER`, `ATENCION_SQL_PASSWORD`, `ATENCION_SQL_DRIVER`, `ATENCION_SQL_ENCRYPT`, `ATENCION_SQL_TRUST_CERTIFICATE`, y sus equivalentes `LOCALES_SQL_*`. Las conexiones solicitan cifrado. Para validar la identidad de SQL Server, instala una cadena de certificados confiable, conecta usando el nombre que figure en el certificado y establece `*_SQL_TRUST_CERTIFICATE=no`.
 
 El servicio web puede iniciar sin conexión SQL. Las consultas se ejecutan mediante `python -m app.sync`, y el panel lee únicamente los datos persistidos por la última sincronización exitosa.
 
@@ -107,4 +107,4 @@ En Ubuntu, las unidades incluidas en `deploy/` programan la carga todos los día
 
 ## Producción en Ubuntu
 
-La guía completa, la unidad `systemd` y la configuración de Nginx están en [`deploy/README_UBUNTU.md`](deploy/README_UBUNTU.md). En producción, mantén `.env` fuera de Git, define `APP_SECRET_KEY` con un valor fuerte y habilita `APP_SESSION_HTTPS_ONLY=true` cuando el acceso público use HTTPS.
+La guía completa, la unidad `systemd` y la configuración de Nginx están en [`deploy/README_UBUNTU.md`](deploy/README_UBUNTU.md). En producción, mantén `.env` fuera de Git, define `APP_SECRET_KEY` con un valor fuerte y sirve también el acceso interno por HTTPS antes de habilitar `APP_SESSION_HTTPS_ONLY=true`. El cifrado de SQL Server requiere `Encrypt=yes`; valida además el certificado del servidor para evitar suplantación.

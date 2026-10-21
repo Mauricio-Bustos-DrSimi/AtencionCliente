@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-import secrets
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -26,7 +25,7 @@ load_dotenv()
 class Settings:
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
     app_port: int = int(os.getenv("APP_PORT", "8000"))
-    secret_key: str = os.getenv("APP_SECRET_KEY") or secrets.token_urlsafe(48)
+    secret_key: str = os.getenv("APP_SECRET_KEY", "")
     session_https_only: bool = os.getenv("APP_SESSION_HTTPS_ONLY", "false").strip().casefold() in {
         "1", "true", "yes", "si", "sí",
     }
@@ -44,6 +43,7 @@ class Settings:
     attention_trust_certificate: str = os.getenv(
         "ATENCION_SQL_TRUST_CERTIFICATE", "yes"
     )
+    attention_encrypt: str = os.getenv("ATENCION_SQL_ENCRYPT", "yes")
 
     locales_server: str = os.getenv("LOCALES_SQL_SERVER", "")
     locales_database: str = os.getenv("LOCALES_SQL_DATABASE", "DW_Simi")
@@ -55,6 +55,7 @@ class Settings:
     locales_trust_certificate: str = os.getenv(
         "LOCALES_SQL_TRUST_CERTIFICATE", "yes"
     )
+    locales_encrypt: str = os.getenv("LOCALES_SQL_ENCRYPT", "yes")
 
 
 settings = Settings()
@@ -68,6 +69,7 @@ def sql_connection_string(source: str) -> str:
         password = settings.attention_password
         driver = settings.attention_driver
         trust = settings.attention_trust_certificate
+        encrypt = settings.attention_encrypt
     elif source == "locales":
         server = settings.locales_server
         database = settings.locales_database
@@ -75,6 +77,7 @@ def sql_connection_string(source: str) -> str:
         password = settings.locales_password
         driver = settings.locales_driver
         trust = settings.locales_trust_certificate
+        encrypt = settings.locales_encrypt
     else:
         raise ValueError("Unknown SQL source")
 
@@ -96,5 +99,5 @@ def sql_connection_string(source: str) -> str:
     return (
         f"DRIVER={{{driver}}};SERVER={server};DATABASE={database};"
         f"UID={quoted(user)};PWD={quoted(password)};"
-        f"TrustServerCertificate={trust};"
+        f"Encrypt={encrypt};TrustServerCertificate={trust};"
     )

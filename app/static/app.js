@@ -29,6 +29,8 @@ async function api(url, options = {}) {
 function showLogin() {
   state.user = null;
   state.csrf = null;
+  $("#login-form").reset();
+  $("#edit-user-password").value = "";
   $("#login-screen").classList.remove("hidden");
   $("#app-screen").classList.add("hidden");
 }
@@ -657,12 +659,10 @@ function openUserDialog(username) {
   $("#edit-user-role").value = target.role;
   $("#edit-user-role").disabled = fixedAdmin;
   $("#edit-user-scope").value = target.scope_name || "";
-  $("#edit-user-password").value = fixedAdmin ? "admin123" : "";
+  $("#edit-user-password").value = "";
   $("#edit-user-password").type = "password";
-  $("#edit-user-password").disabled = fixedAdmin;
-  $("#edit-password-help").textContent = fixedAdmin
-    ? "Contraseña fija: admin123. Se restaura al iniciar la aplicación."
-    : "Déjala vacía para conservar la actual.";
+  $("#edit-user-password").disabled = false;
+  $("#edit-password-help").textContent = "Déjala vacía para conservar la actual. Si cambias tu propia cuenta, deberás iniciar sesión de nuevo.";
   document.querySelector('[data-target="edit-user-password"]').textContent = "Ver";
   $("#edit-user-error").classList.add("hidden");
   updateEditScopeField();
@@ -699,8 +699,10 @@ $("#login-form").addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
     });
+    event.currentTarget.reset();
     showApp(user);
   } catch (error) {
+    $("#login-password").value = "";
     errorBox.textContent = error.message;
     errorBox.classList.remove("hidden");
   }
@@ -895,6 +897,7 @@ document.querySelectorAll(".password-toggle").forEach((button) => button.addEven
 }));
 
 $("#edit-user-role").addEventListener("change", updateEditScopeField);
+$("#user-dialog").addEventListener("close", () => { $("#edit-user-password").value = ""; });
 $("#user-dialog-close").addEventListener("click", () => $("#user-dialog").close());
 $("#user-dialog-cancel").addEventListener("click", () => $("#user-dialog").close());
 $("#user-edit-form").addEventListener("submit", async (event) => {
@@ -913,6 +916,7 @@ $("#user-edit-form").addEventListener("submit", async (event) => {
       method: "PUT",
       body: JSON.stringify(payload),
     });
+    $("#edit-user-password").value = "";
     $("#user-dialog").close();
     showToast("Usuario actualizado.");
     await loadUsers();

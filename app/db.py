@@ -1,11 +1,11 @@
 from contextlib import contextmanager
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
 from .config import settings
-from .security import hash_password
 
 
 ROLES = {
@@ -24,7 +24,6 @@ ROLES = {
 PLAN_STATUSES = {"pendiente", "en_subsanacion", "concluido"}
 FIXED_ADMIN_USERNAME = "admin"
 FIXED_ADMIN_FULL_NAME = "Administrador local"
-FIXED_ADMIN_PASSWORD = "admin123"
 
 
 def connect() -> sqlite3.Connection:
@@ -443,12 +442,27 @@ def initialize() -> None:
             )
             """
         )
+        if 8 not in versions:
+            connection.execute("ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN password_ready INTEGER NOT NULL DEFAULT 1")
+            connection.execute(
+                "UPDATE users SET password_ready = 0 WHERE username = ? COLLATE NOCASE",
+                (FIXED_ADMIN_USERNAME,),
+            )
+            connection.execute("INSERT INTO schema_migrations (version) VALUES (8)")
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS login_attempts (
+                username TEXT PRIMARY KEY COLLATE NOCASE,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                first_failed_at TEXT NOT NULL,
+                locked_until TEXT
+            )"""
+        )
         _ensure_fixed_admin(connection)
 
 
 def _ensure_fixed_admin(connection: sqlite3.Connection) -> None:
-    """Mantiene disponible la cuenta administrativa base de la aplicación."""
-    fixed_password_hash = hash_password(FIXED_ADMIN_PASSWORD, minimum_length=8)
+    """Conserva la cuenta base sin restaurar ni publicar su contraseña."""
     existing = connection.execute(
         "SELECT username FROM users WHERE username = ? COLLATE NOCASE",
         (FIXED_ADMIN_USERNAME,),
@@ -456,20 +470,66 @@ def _ensure_fixed_admin(connection: sqlite3.Connection) -> None:
     if existing:
         connection.execute(
             """UPDATE users
-               SET password_hash = ?, role = 'admin', scope_name = NULL, active = 1
+               SET auth_version = auth_version + CASE
+                       WHEN role != 'admin' OR scope_name IS NOT NULL OR active != 1 THEN 1
+                       ELSE 0 END,
+                   role = 'admin', scope_name = NULL, active = 1
                WHERE username = ? COLLATE NOCASE""",
-            (fixed_password_hash, FIXED_ADMIN_USERNAME),
+            (FIXED_ADMIN_USERNAME,),
         )
         return
-    connection.execute(
-        """INSERT INTO users (username, full_name, password_hash, role, scope_name, active)
-           VALUES (?, ?, ?, 'admin', NULL, 1)""",
-        (
-            FIXED_ADMIN_USERNAME,
-            FIXED_ADMIN_FULL_NAME,
-            fixed_password_hash,
-        ),
-    )
+
+
+def admin_password_is_ready() -> bool:
+    with db_session() as connection:
+        row = connection.execute(
+            "SELECT password_ready FROM users WHERE username = ? COLLATE NOCASE",
+            (FIXED_ADMIN_USERNAME,),
+        ).fetchone()
+    return bool(row and row["password_ready"])
+
+
+def login_is_locked(username: str) -> bool:
+    now = datetime.now(timezone.utc)
+    with db_session() as connection:
+        row = connection.execute(
+            "SELECT locked_until FROM login_attempts WHERE username = ?",
+            (username.casefold(),),
+        ).fetchone()
+    return bool(row and row["locked_until"] and datetime.fromisoformat(row["locked_until"]) > now)
+
+
+def record_login_failure(username: str) -> None:
+    now = datetime.now(timezone.utc)
+    key = username.casefold()
+    with db_session() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "DELETE FROM login_attempts WHERE first_failed_at < ?",
+            ((now - timedelta(days=1)).isoformat(),),
+        )
+        row = connection.execute(
+            "SELECT failure_count, first_failed_at FROM login_attempts WHERE username = ?",
+            (key,),
+        ).fetchone()
+        recent = bool(row and datetime.fromisoformat(row["first_failed_at"]) > now - timedelta(minutes=15))
+        count = (row["failure_count"] + 1) if recent else 1
+        first_at = row["first_failed_at"] if recent else now.isoformat()
+        locked_until = (now + timedelta(minutes=15)).isoformat() if count >= 5 else None
+        connection.execute(
+            """INSERT INTO login_attempts (username, failure_count, first_failed_at, locked_until)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(username) DO UPDATE SET
+                   failure_count = excluded.failure_count,
+                   first_failed_at = excluded.first_failed_at,
+                   locked_until = excluded.locked_until""",
+            (key, count, first_at, locked_until),
+        )
+
+
+def clear_login_failures(username: str) -> None:
+    with db_session() as connection:
+        connection.execute("DELETE FROM login_attempts WHERE username = ?", (username.casefold(),))
 
 
 def get_user(username: str):
@@ -540,18 +600,42 @@ def update_user_account(username, full_name, role, scope_name, password_hash=Non
         if password_hash:
             result = connection.execute(
                 """UPDATE users
-                   SET full_name = ?, role = ?, scope_name = ?, password_hash = ?
+                   SET full_name = ?, role = ?, scope_name = ?, password_hash = ?,
+                       auth_version = auth_version + 1, password_ready = 1
                    WHERE username = ? COLLATE NOCASE""",
                 (full_name, role, scope_name or None, password_hash, username),
             )
         else:
             result = connection.execute(
                 """UPDATE users
-                   SET full_name = ?, role = ?, scope_name = ?
+                   SET full_name = ?, role = ?, scope_name = ?, auth_version = auth_version + 1
                    WHERE username = ? COLLATE NOCASE""",
                 (full_name, role, scope_name or None, username),
             )
     return result.rowcount == 1
+
+
+def set_account_password(username: str, password_hash: str) -> None:
+    with db_session() as connection:
+        if username.casefold() == FIXED_ADMIN_USERNAME:
+            connection.execute(
+                """INSERT INTO users
+                   (username, full_name, password_hash, role, scope_name, auth_version, password_ready)
+                   VALUES (?, ?, ?, 'admin', NULL, 1, 1)
+                   ON CONFLICT(username) DO UPDATE SET
+                       password_hash = excluded.password_hash,
+                       role = 'admin', scope_name = NULL, active = 1,
+                       auth_version = users.auth_version + 1, password_ready = 1""",
+                (FIXED_ADMIN_USERNAME, FIXED_ADMIN_FULL_NAME, password_hash),
+            )
+        else:
+            result = connection.execute(
+                """UPDATE users SET password_hash = ?, auth_version = auth_version + 1
+                   WHERE username = ? COLLATE NOCASE AND active = 1""",
+                (password_hash, username),
+            )
+            if not result.rowcount:
+                raise ValueError("La cuenta no existe o está inactiva.")
 
 
 def delete_user_account(username) -> bool:
