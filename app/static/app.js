@@ -691,15 +691,16 @@ function setView(view) {
 
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const formElement = event.currentTarget;
   const errorBox = $("#login-error");
   errorBox.classList.add("hidden");
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(formElement);
   try {
     const user = await api("/api/login", {
       method: "POST",
       body: JSON.stringify({ username: form.get("username"), password: form.get("password") }),
     });
-    event.currentTarget.reset();
+    formElement.reset();
     showApp(user);
   } catch (error) {
     $("#login-password").value = "";
@@ -850,13 +851,14 @@ $("#new-user-role").addEventListener("change", (event) => {
 
 $("#user-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
   const payload = Object.fromEntries(form.entries());
   const errorBox = $("#user-error");
   errorBox.classList.add("hidden");
   try {
     await api("/api/admin/users", { method: "POST", body: JSON.stringify(payload) });
-    event.currentTarget.reset();
+    formElement.reset();
     $("#scope-field").classList.add("hidden");
     showToast("Usuario creado.");
     await loadUsers();
@@ -868,6 +870,7 @@ $("#user-form").addEventListener("submit", async (event) => {
 
 $("#user-import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const formElement = event.currentTarget;
   const file = $("#user-import-file").files[0];
   const resultBox = $("#user-import-result");
   resultBox.classList.add("hidden");
@@ -881,7 +884,7 @@ $("#user-import-form").addEventListener("submit", async (event) => {
       .map((item) => `Línea ${item.line}: ${item.reason}`).join(" · ");
     resultBox.textContent = `${result.created} usuario(s) creado(s) y ${result.skipped} omitido(s).${details ? ` ${details}` : ""}`;
     resultBox.className = "notice success";
-    event.currentTarget.reset();
+    formElement.reset();
     await loadUsers();
   } catch (error) {
     resultBox.textContent = error.message;
